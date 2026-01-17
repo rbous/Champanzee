@@ -1,22 +1,19 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
-# Install air for hot reloading
-RUN go install github.com/cosmtrek/air@latest
-
-# Copy go mod files
+# Copy go mod files first for better caching (from api/ subdirectory)
 COPY api/go.mod api/go.sum ./
 
 # Download dependencies
 RUN go mod download
 
-# Copy source code
-COPY . .
+# Copy source code from api/
+COPY api/ .
 
 # Build the application
-RUN go build -o main ./api
+RUN CGO_ENABLED=0 GOOS=linux go build -o main .
 
 # Final stage
 FROM alpine:latest
