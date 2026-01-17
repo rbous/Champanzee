@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: 2026champs_mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: champsdb
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - champs_network
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: 2026champs_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - champs_network
+
+  api:
+    build:
+      context: .
+      dockerfile: ./api/Dockerfile
+    container_name: 2026champs_api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - MONGO_URI=mongodb://admin:password@mongodb:27017/champsdb?authSource=admin
+      - REDIS_URI=redis://redis:6379
+    depends_on:
+      - mongodb
+      - redis
+    volumes:
+      - ./api:/app
+      - /app/vendor
+    networks:
+      - champs_network
+    command: ["air", "-c", ".air.toml"]
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: 2026champs_web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    networks:
+      - champs_network
+    command: ["npm", "run", "dev"]
+
+volumes:
+  mongodb_data:
+  redis_data:
+
+networks:
+  champs_network:
+    driver: bridge
