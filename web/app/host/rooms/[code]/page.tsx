@@ -122,8 +122,8 @@ export default function RoomDashboard() {
                         <h1 className="text-xl font-bold">Room Dashboard</h1>
                         <div className="flex items-center gap-2 mt-1">
                             <span className={`w-2 h-2 rounded-full ${wsStatus === 'connected' ? 'bg-[var(--success)]' :
-                                    wsStatus === 'connecting' ? 'bg-[var(--warning)] animate-pulse' :
-                                        'bg-[var(--error)]'
+                                wsStatus === 'connecting' ? 'bg-[var(--warning)] animate-pulse' :
+                                    'bg-[var(--error)]'
                                 }`} />
                             <span className="text-sm text-[var(--foreground-muted)]">
                                 {wsStatus === 'connected' ? 'Live' : wsStatus}
@@ -217,7 +217,7 @@ export default function RoomDashboard() {
                                     className="flex items-center gap-3 p-3 rounded-lg bg-[var(--background-elevated)]"
                                 >
                                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[var(--accent-start)] to-[var(--accent-end)] flex items-center justify-center text-sm font-bold">
-                                        {player.nickname.charAt(0).toUpperCase()}
+                                        {(player.nickname || '?').charAt(0).toUpperCase()}
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="font-medium truncate">{player.nickname}</div>
@@ -228,8 +228,8 @@ export default function RoomDashboard() {
                                         )}
                                     </div>
                                     <span className={`badge ${player.status === 'joined' ? 'badge-neutral' :
-                                            player.status === 'answering' ? 'badge-warning' :
-                                                'badge-success'
+                                        player.status === 'answering' ? 'badge-warning' :
+                                            'badge-success'
                                         }`}>
                                         {player.status}
                                     </span>

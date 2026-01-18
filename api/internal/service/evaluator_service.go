@@ -52,12 +52,12 @@ func (s *EvaluatorService) EvaluateAnswer(ctx context.Context, question *model.Q
 }
 
 // GenerateFollowUp generates a personalized follow-up question (fast model)
-func (s *EvaluatorService) GenerateFollowUp(ctx context.Context, question *model.Question, player *model.Player, evalResult *model.EvaluationResult) (*model.Question, error) {
+func (s *EvaluatorService) GenerateFollowUp(ctx context.Context, question *model.Question, player *model.Player, evalResult *model.EvaluationResult, answerText string, qProfile *model.QuestionProfile, roomMemory *model.RoomMemory, history []model.Answer) (*model.Question, error) {
 	if !s.config.IsEnabled() {
 		return s.mockFollowUp(question), nil
 	}
 
-	prompt := s.buildFollowUpPrompt(question, player, evalResult)
+	prompt := s.buildFollowUpPrompt(question, player, evalResult, answerText, qProfile, roomMemory, history)
 	response, err := s.callGemini(ctx, s.config.Models.FollowUp, prompt)
 	if err != nil {
 		return s.mockFollowUp(question), nil
@@ -245,30 +245,90 @@ Extract themes, identify what's missing, and suggest a follow-up mode.`,
 		question.Prompt, question.Rubric, question.Threshold, answer.TextAnswer)
 }
 
-func (s *EvaluatorService) buildFollowUpPrompt(question *model.Question, player *model.Player, evalResult *model.EvaluationResult) string {
+func (s *EvaluatorService) buildFollowUpPrompt(question *model.Question, player *model.Player, evalResult *model.EvaluationResult, answerText string, qProfile *model.QuestionProfile, roomMemory *model.RoomMemory, history []model.Answer) string {
 	missingStr := strings.Join(evalResult.Signals.Missing, ", ")
-	return fmt.Sprintf(`Generate a personalized follow-up question. Return ONLY valid JSON:
+
+	// Context construction
+	peerCtx := ""
+	if qProfile != nil {
+		topMis := ""
+		if len(qProfile.Misunderstandings) > 0 {
+			topMis = "- Common misunderstandings: " + strings.Join(qProfile.Misunderstandings, "; ")
+		}
+		topThemes := ""
+		themes := make([]string, 0)
+		for t := range qProfile.ThemeCounts {
+			themes = append(themes, t)
+		}
+		if len(themes) > 0 {
+			// Just take first 3 for brevity
+			if len(themes) > 3 {
+				themes = themes[:3]
+			}
+			topThemes = "- Other players discussed: " + strings.Join(themes, ", ")
+		}
+		peerCtx += fmt.Sprintf("\nPeer Context:\n%s\n%s", topThemes, topMis)
+	}
+
+	if roomMemory != nil {
+		globalThemes := ""
+		if len(roomMemory.GlobalThemesTop) > 0 {
+			globals := make([]string, 0)
+			for _, t := range roomMemory.GlobalThemesTop {
+				globals = append(globals, t.Theme)
+			}
+			if len(globals) > 3 {
+				globals = globals[:3]
+			}
+			globalThemes = "- Room-wide themes: " + strings.Join(globals, ", ")
+		}
+		peerCtx += fmt.Sprintf("\nRoom Context:\n%s", globalThemes)
+	}
+
+	// History construction
+	historyStr := ""
+	if len(history) > 0 {
+		var sb strings.Builder
+		sb.WriteString("\nConversation History:\n")
+		for _, ans := range history {
+			// We ideally need the question text too, but answer model doesn't store it directly.
+			// We can infer it's a previous turn.
+			// For now, let's just list the player's previous answers to give context on what they've already said.
+			sb.WriteString(fmt.Sprintf("- Player previously said: \"%s\"\n", ans.TextAnswer))
+		}
+		historyStr = sb.String()
+	}
+
+	return fmt.Sprintf(`You are a charismatic game show host. Generate a personalized follow-up question for a player.
+Return ONLY valid JSON:
 {
   "followUps": [{
     "questionKey": "%s.1",
     "parentKey": "%s",
     "type": "ESSAY",
-    "prompt": "follow-up question text",
+    "prompt": "follow-up text",
     "rubric": "grading guidance",
     "pointsMax": %d,
     "threshold": %.2f,
-    "reason_in_scope": "why this follow-up is relevant"
+    "reason_in_scope": "why this is relevant to the player's answer and room context"
   }]
 }
 
 Original Question: %s
-Player's Answer was marked: %s
-Missing details: %s
-Suggested follow-up mode: %s
+Player's Answer: "%s"
+Evaluation: %s (Missing: %s)
+Suggested Mode: %s
+%s
+%s
 
-Generate a short, focused follow-up that addresses the missing aspects.`,
+Instructions:
+1. Address the player's specific answer.
+2. If "Peer Context" is available, COMPARE their view to others (e.g., "Others mentioned ... how do you feel?").
+3. If "Comparative" mode is suggested, explicitly ask for a tradeoff.
+4. Do NOT repeat questions or ask about things the player has already mentioned in the "Conversation History".
+5. Keep it short, engaging, and conversational.`,
 		question.Key, question.Key, question.PointsMax/2, question.Threshold,
-		question.Prompt, evalResult.Resolution, missingStr, evalResult.FollowUpHint)
+		question.Prompt, answerText, evalResult.Resolution, missingStr, evalResult.FollowUpHint, peerCtx, historyStr)
 }
 
 func (s *EvaluatorService) buildPoolPrompt(question *model.Question, surveyIntent string) string {

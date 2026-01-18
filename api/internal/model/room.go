@@ -15,7 +15,7 @@ const (
 type RoomSettings struct {
 	SatisfactoryThreshold *float64 `json:"satisfactoryThreshold,omitempty" bson:"satisfactoryThreshold,omitempty"`
 	MaxFollowUps          *int     `json:"maxFollowUps,omitempty" bson:"maxFollowUps,omitempty"`
-	AllowSkipImmediately  *bool    `json:"allowSkipImmediately,omitempty" bson:"allowSkipImmediately,omitempty"`
+	AllowSkipAfter        *int     `json:"allowSkipAfter,omitempty" bson:"allowSkipAfter,omitempty"`
 }
 
 // Room is a live session created from a survey (ephemeral in Redis, persisted in Mongo for history)

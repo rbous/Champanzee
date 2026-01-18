@@ -67,6 +67,7 @@ func NewRouter(c *Container) http.Handler {
 	hostRoutes.HandleFunc("/surveys", surveyHandler.Create).Methods("POST", "OPTIONS")
 	hostRoutes.HandleFunc("/surveys", surveyHandler.List).Methods("GET", "OPTIONS")
 	hostRoutes.HandleFunc("/surveys/{surveyId}", surveyHandler.Get).Methods("GET", "OPTIONS")
+	hostRoutes.HandleFunc("/surveys/{surveyId}", surveyHandler.Update).Methods("PUT", "OPTIONS")
 	hostRoutes.HandleFunc("/rooms", roomHandler.Create).Methods("POST", "OPTIONS")
 	hostRoutes.HandleFunc("/rooms/{code}", roomHandler.Get).Methods("GET", "OPTIONS")
 	hostRoutes.HandleFunc("/rooms/{code}/start", roomHandler.Start).Methods("POST", "OPTIONS")

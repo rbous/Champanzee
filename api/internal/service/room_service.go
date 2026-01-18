@@ -13,10 +13,12 @@ import (
 
 // RoomService handles room lifecycle operations
 type RoomService struct {
-	roomRepo   repository.RoomRepo
-	surveyRepo repository.SurveyRepo
-	roomCache  cache.RoomCache
-	authSvc    *AuthService
+	roomRepo    repository.RoomRepo
+	surveyRepo  repository.SurveyRepo
+	roomCache   cache.RoomCache
+	authSvc     *AuthService
+	reportSvc   *ReportService
+	broadcaster Broadcaster
 }
 
 // NewRoomService creates a new room service
@@ -25,13 +27,20 @@ func NewRoomService(
 	surveyRepo repository.SurveyRepo,
 	roomCache cache.RoomCache,
 	authSvc *AuthService,
+	reportSvc *ReportService,
 ) *RoomService {
 	return &RoomService{
 		roomRepo:   roomRepo,
 		surveyRepo: surveyRepo,
 		roomCache:  roomCache,
 		authSvc:    authSvc,
+		reportSvc:  reportSvc,
 	}
+}
+
+// SetBroadcaster sets the broadcaster for WebSocket events
+func (s *RoomService) SetBroadcaster(b Broadcaster) {
+	s.broadcaster = b
 }
 
 // CreateRoom creates a new room from a survey
@@ -113,7 +122,16 @@ func (s *RoomService) StartRoom(ctx context.Context, code, hostID string) error 
 	if err := s.roomRepo.Update(ctx, room); err != nil {
 		return err
 	}
-	return s.roomCache.SetStatus(ctx, code, model.RoomStatusActive)
+	if err := s.roomCache.SetStatus(ctx, code, model.RoomStatusActive); err != nil {
+		return err
+	}
+
+	// Notify all players that room has started
+	if s.broadcaster != nil {
+		s.broadcaster.BroadcastToAllPlayers(code, "room_started", map[string]string{"status": "ACTIVE"})
+	}
+
+	return nil
 }
 
 // EndRoom transitions room to ENDED status
@@ -136,6 +154,27 @@ func (s *RoomService) EndRoom(ctx context.Context, code, hostID string) error {
 	if err := s.roomRepo.Update(ctx, room); err != nil {
 		return err
 	}
+
+	// Create snapshot
+	// Get survey to get question keys
+	survey, err := s.surveyRepo.GetByID(ctx, room.SurveyID)
+	// If survey missing, we can still try to create snapshot with empty keys, or just log error?
+	// For robustnes, if survey missing, maybe we skip snapshot or create with 0 keys.
+	// But survey should exist if room exists.
+	var questionKeys []string
+	if err == nil && survey != nil {
+		for _, q := range survey.Questions {
+			questionKeys = append(questionKeys, q.Key)
+		}
+	}
+
+	if _, err := s.reportSvc.CreateSnapshot(ctx, code, questionKeys); err != nil {
+		// Log error but don't fail the request? Or fail?
+		// Better to just log. But we don't have logger here easily accessible.
+		// For now return error as it is important.
+		return fmt.Errorf("failed to create snapshot: %w", err)
+	}
+
 	return s.roomCache.SetStatus(ctx, code, model.RoomStatusEnded)
 }
 

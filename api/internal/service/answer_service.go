@@ -145,7 +145,7 @@ func (s *AnswerService) SubmitAnswer(ctx context.Context, roomCode, playerID str
 
 		// Handle UNSAT - may trigger follow-up
 		if answer.Resolution == model.ResolutionUnsat {
-			followUp, err := s.getOrGenerateFollowUp(ctx, roomCode, playerID, question, evalResult)
+			followUp, err := s.getOrGenerateFollowUp(ctx, roomCode, playerID, question, evalResult, answer.TextAnswer)
 			if err == nil && followUp != nil {
 				if err := s.playerSvc.InsertFollowUp(ctx, roomCode, playerID, followUp); err == nil {
 					response.FollowUp = followUp
@@ -255,7 +255,7 @@ func (s *AnswerService) Skip(ctx context.Context, roomCode, playerID, questionKe
 }
 
 // getOrGenerateFollowUp retrieves from pool or generates on-demand
-func (s *AnswerService) getOrGenerateFollowUp(ctx context.Context, roomCode, playerID string, question *model.Question, evalResult *model.EvaluationResult) (*model.Question, error) {
+func (s *AnswerService) getOrGenerateFollowUp(ctx context.Context, roomCode, playerID string, question *model.Question, evalResult *model.EvaluationResult, answerText string) (*model.Question, error) {
 	// Try pool first
 	pool, err := s.poolCache.GetPool(ctx, roomCode, question.Key)
 	if err != nil {
@@ -287,7 +287,33 @@ func (s *AnswerService) getOrGenerateFollowUp(ctx context.Context, roomCode, pla
 		}
 	}
 
+	// Fetch analytics context for personalization
+	var qProfile *model.QuestionProfile
+	var roomMemory *model.RoomMemory
+
+	if s.analyticsSvc != nil {
+		// Best effort fetching - don't fail if analytics are missing
+		qProfile, _ = s.analyticsSvc.GetQuestionProfile(ctx, roomCode, question.Key)
+		roomMemory, _ = s.analyticsSvc.GetRoomMemory(ctx, roomCode)
+	}
+
+	// Fetch conversation history
+	// We want all previous answers from this player in this room to give context
+	// In a real implementation, we might filter to just the current question thread (parent + siblings)
+	allAnswers, err := s.answerRepo.GetByRoomAndPlayer(ctx, roomCode, playerID)
+	history := []model.Answer{}
+	if err == nil {
+		// Simple filter: include answers related to the same parent key or the question itself
+		// Ideally we traverse the tree, but for now, let's just dump the last few answers as context
+		for _, ans := range allAnswers {
+			// Include if it's the base question or a related follow-up
+			// Heuristic: starts with the same prefix? Or just all recent answers?
+			// Let's pass all recent answers for rich context
+			history = append(history, *ans)
+		}
+	}
+
 	// Generate on-demand
 	player, _ := s.playerSvc.GetPlayer(ctx, roomCode, playerID)
-	return s.evaluator.GenerateFollowUp(ctx, question, player, evalResult)
+	return s.evaluator.GenerateFollowUp(ctx, question, player, evalResult, answerText, qProfile, roomMemory, history)
 }

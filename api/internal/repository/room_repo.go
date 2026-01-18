@@ -70,7 +70,7 @@ func (r *roomRepo) GetBySurveyID(ctx context.Context, surveyID string) ([]*model
 	}
 	defer cursor.Close(ctx)
 
-	var rooms []*model.Room
+	rooms := []*model.Room{}
 	if err := cursor.All(ctx, &rooms); err != nil {
 		return nil, err
 	}

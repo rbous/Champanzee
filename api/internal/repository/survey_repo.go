@@ -71,7 +71,7 @@ func (r *surveyRepo) GetByHostID(ctx context.Context, hostID string) ([]*model.S
 	}
 	defer cursor.Close(ctx)
 
-	var surveys []*model.Survey
+	surveys := []*model.Survey{}
 	if err := cursor.All(ctx, &surveys); err != nil {
 		return nil, err
 	}

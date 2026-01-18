@@ -121,9 +121,9 @@ func (s *PlayerService) JoinRoom(ctx context.Context, roomCode, nickname string)
 		return nil, fmt.Errorf("failed to set queue: %w", err)
 	}
 
-	// Get first question
+	// Get first question (only if room is active)
 	var firstQuestion *model.Question
-	if len(questionKeys) > 0 {
+	if meta.Status == model.RoomStatusActive && len(questionKeys) > 0 {
 		firstKey := questionKeys[0]
 		player.CurrentKey = firstKey
 		if err := s.playerCache.SetPlayer(ctx, roomCode, playerID, player); err != nil {
@@ -133,6 +133,16 @@ func (s *PlayerService) JoinRoom(ctx context.Context, roomCode, nickname string)
 			return nil, err
 		}
 		firstQuestion, _ = s.playerCache.GetQuestionMap(ctx, roomCode, playerID, firstKey)
+	} else if len(questionKeys) > 0 {
+		// Initialize current key but don't return question yet if in lobby
+		firstKey := questionKeys[0]
+		player.CurrentKey = firstKey
+		if err := s.playerCache.SetPlayer(ctx, roomCode, playerID, player); err != nil {
+			return nil, err
+		}
+		if err := s.playerCache.SetCurrent(ctx, roomCode, playerID, firstKey); err != nil {
+			return nil, err
+		}
 	}
 
 	return &model.PlayerJoinResponse{
@@ -145,6 +155,18 @@ func (s *PlayerService) JoinRoom(ctx context.Context, roomCode, nickname string)
 
 // GetCurrentQuestion retrieves the player's current question
 func (s *PlayerService) GetCurrentQuestion(ctx context.Context, roomCode, playerID string) (*model.Question, error) {
+	// Check room status
+	meta, err := s.roomCache.GetMeta(ctx, roomCode)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get room meta: %w", err)
+	}
+	if meta == nil {
+		return nil, fmt.Errorf("room not found")
+	}
+	if meta.Status == model.RoomStatusLobby {
+		return nil, nil // Waiting for host
+	}
+
 	currentKey, err := s.playerCache.GetCurrent(ctx, roomCode, playerID)
 	if err != nil {
 		return nil, err

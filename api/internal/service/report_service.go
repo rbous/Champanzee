@@ -51,7 +51,7 @@ func (s *ReportService) CreateSnapshot(ctx context.Context, roomCode string, que
 		return nil, err
 	}
 
-	var leaderboard []model.LeaderboardEntry
+	leaderboard := []model.LeaderboardEntry{}
 	for i, e := range entries {
 		leaderboard = append(leaderboard, model.LeaderboardEntry{
 			PlayerID: e.PlayerID,
@@ -61,7 +61,7 @@ func (s *ReportService) CreateSnapshot(ctx context.Context, roomCode string, que
 	}
 
 	// Get question profiles
-	var profiles []model.QuestionProfile
+	profiles := []model.QuestionProfile{}
 	for _, qKey := range questionKeys {
 		profile, err := s.analyticsCache.GetQuestionProfile(ctx, roomCode, qKey)
 		if err == nil && profile != nil {

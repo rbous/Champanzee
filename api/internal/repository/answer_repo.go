@@ -75,7 +75,7 @@ func (r *answerRepo) GetByRoomCode(ctx context.Context, roomCode string) ([]*mod
 	}
 	defer cursor.Close(ctx)
 
-	var answers []*model.Answer
+	answers := []*model.Answer{}
 	if err := cursor.All(ctx, &answers); err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func (r *answerRepo) GetByRoomAndPlayer(ctx context.Context, roomCode, playerID 
 	}
 	defer cursor.Close(ctx)
 
-	var answers []*model.Answer
+	answers := []*model.Answer{}
 	if err := cursor.All(ctx, &answers); err != nil {
 		return nil, err
 	}
@@ -109,7 +109,7 @@ func (r *answerRepo) GetByRoomAndQuestion(ctx context.Context, roomCode, questio
 	}
 	defer cursor.Close(ctx)
 
-	var answers []*model.Answer
+	answers := []*model.Answer{}
 	if err := cursor.All(ctx, &answers); err != nil {
 		return nil, err
 	}

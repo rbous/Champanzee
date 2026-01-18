@@ -108,12 +108,12 @@ func main() {
 	// Initialize services
 	authSvc := service.NewAuthService()
 	surveySvc := service.NewSurveyService(surveyRepo)
-	roomSvc := service.NewRoomService(roomRepo, surveyRepo, roomCache, authSvc)
 	evaluator := service.NewEvaluatorService()
+	reportSvc := service.NewReportService(roomRepo, answerRepo, reportRepo, analyticsCache, leaderboard, evaluator)
+	roomSvc := service.NewRoomService(roomRepo, surveyRepo, roomCache, authSvc, reportSvc)
 	playerSvc := service.NewPlayerService(surveyRepo, roomCache, playerCache, leaderboard, authSvc)
 	analyticsSvc := service.NewAnalyticsService(analyticsCache, evaluator)
 	answerSvc := service.NewAnswerService(answerRepo, playerCache, poolCache, playerSvc, evaluator)
-	reportSvc := service.NewReportService(roomRepo, answerRepo, reportRepo, analyticsCache, leaderboard, evaluator)
 
 	// Inject analytics service into answer service for L2/L3/L4 updates
 	answerSvc.SetAnalyticsService(analyticsSvc)
@@ -121,6 +121,7 @@ func main() {
 	// Inject broadcaster (wsHub implements service.Broadcaster)
 	answerSvc.SetBroadcaster(wsHub)
 	playerSvc.SetBroadcaster(wsHub)
+	roomSvc.SetBroadcaster(wsHub)
 
 	// Create router with container
 	container := &rest.Container{

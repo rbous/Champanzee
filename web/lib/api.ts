@@ -55,6 +55,14 @@ export interface CreateRoomResponse {
 export interface JoinRoomResponse {
     playerId: string;
     token: string;
+    roomMeta: {
+        surveyId: string;
+        hostId: string;
+        status: string;
+        createdAt: string;
+        settingsJson: string;
+        scopeSummary: string;
+    };
     firstQuestion: Question;
 }
 
@@ -247,8 +255,17 @@ export const surveys = {
     },
 
     list: async (): Promise<Survey[]> => {
-        return request<Survey[]>('/surveys', {
+        const response = await request<{ surveys: Survey[] }>('/surveys', {
             headers: authHeaders('host'),
+        });
+        return response.surveys;
+    },
+
+    update: async (id: string, data: CreateSurveyRequest): Promise<Survey> => {
+        return request<Survey>(`/surveys/${id}`, {
+            method: 'PUT',
+            headers: authHeaders('host'),
+            body: JSON.stringify(data),
         });
     },
 
@@ -294,6 +311,23 @@ export const rooms = {
         localStorage.setItem('player_token', response.token);
         localStorage.setItem('player_id', response.playerId);
         localStorage.setItem('room_code', code);
+
+        // Store room settings if available
+        if (response.roomMeta && response.roomMeta.settingsJson) {
+            try {
+                const settings = JSON.parse(response.roomMeta.settingsJson);
+                // The Go model has AllowSkipAfter (int)
+                if (settings.allowSkipAfter !== undefined) {
+                    localStorage.setItem('room_allow_skip_after', String(settings.allowSkipAfter));
+                } else if (settings.allowSkipImmediately !== undefined) {
+                    // Fallback for legacy rooms/settings
+                    localStorage.setItem('room_allow_skip_after', settings.allowSkipImmediately ? '0' : '1');
+                }
+            } catch (e) {
+                console.error("Failed to parse room settings", e);
+            }
+        }
+
         return response;
     },
 };
@@ -303,10 +337,11 @@ export const rooms = {
 // ============================================
 
 export const player = {
-    getCurrentQuestion: async (code: string): Promise<Question> => {
-        return request<Question>(`/rooms/${code}/question/current`, {
+    getCurrentQuestion: async (code: string): Promise<Question | null> => {
+        const response = await request<{ question: Question | null }>(`/rooms/${code}/question/current`, {
             headers: authHeaders('player'),
         });
+        return response.question;
     },
 
     saveDraft: async (code: string, questionKey: string, draft: string): Promise<void> => {
@@ -365,14 +400,16 @@ export const reports = {
 // WebSocket URLs
 // ============================================
 
-export function getHostWebSocketUrl(code: string): string {
+export function getHostWebSocketUrl(code: string): string | null {
     const token = getToken('host');
+    if (!token) return null;
     const wsBase = API_BASE.replace('http', 'ws');
     return `${wsBase}/ws/rooms/${code}/host?token=${token}`;
 }
 
-export function getPlayerWebSocketUrl(code: string): string {
+export function getPlayerWebSocketUrl(code: string): string | null {
     const token = getToken('player');
+    if (!token) return null;
     const wsBase = API_BASE.replace('http', 'ws');
     return `${wsBase}/ws/rooms/${code}/player?token=${token}`;
 }

@@ -21,6 +21,14 @@ export default function PlayerGame() {
     const [totalPoints, setTotalPoints] = useState(0);
     const [attemptCount, setAttemptCount] = useState(0);
     const [wsUrl, setWsUrl] = useState<string | null>(null);
+    const [allowSkipAfter, setAllowSkipAfter] = useState(1);
+
+    useEffect(() => {
+        const storedSkip = localStorage.getItem('room_allow_skip_after');
+        if (storedSkip) {
+            setAllowSkipAfter(parseInt(storedSkip, 10));
+        }
+    }, []);
 
     // WebSocket handlers
     const handleNextQuestion = useCallback((event: NextQuestionEvent) => {
@@ -185,8 +193,8 @@ export default function PlayerGame() {
                     {/* Result display */}
                     {gameState === 'evaluated' && result && (
                         <div className={`card mb-4 animate-slide-up ${result.resolution === 'SAT'
-                                ? 'border-[var(--success)]'
-                                : 'border-[var(--warning)]'
+                            ? 'border-[var(--success)]'
+                            : 'border-[var(--warning)]'
                             }`} style={{ borderWidth: 2 }}>
                             <div className="flex items-center gap-3 mb-3">
                                 <span className={`badge ${result.resolution === 'SAT' ? 'badge-success' : 'badge-warning'
@@ -280,7 +288,7 @@ export default function PlayerGame() {
                                             )}
                                         </button>
 
-                                        {attemptCount >= 1 && (
+                                        {attemptCount >= allowSkipAfter && (
                                             <button
                                                 onClick={handleSkip}
                                                 className="btn btn-ghost"

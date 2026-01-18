@@ -35,6 +35,17 @@ export function useWebSocket(url: string | null, options: UseWebSocketOptions = 
     const reconnectCountRef = useRef(0);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+    // Store handlers in refs to avoid reconnection on handler change
+    const onMessageRef = useRef(onMessage);
+    const onConnectRef = useRef(onConnect);
+    const onDisconnectRef = useRef(onDisconnect);
+    const onErrorRef = useRef(onError);
+
+    useEffect(() => { onMessageRef.current = onMessage; }, [onMessage]);
+    useEffect(() => { onConnectRef.current = onConnect; }, [onConnect]);
+    useEffect(() => { onDisconnectRef.current = onDisconnect; }, [onDisconnect]);
+    useEffect(() => { onErrorRef.current = onError; }, [onError]);
+
     const connect = useCallback(() => {
         if (!url) return;
 
@@ -50,12 +61,12 @@ export function useWebSocket(url: string | null, options: UseWebSocketOptions = 
         ws.onopen = () => {
             setStatus('connected');
             reconnectCountRef.current = 0;
-            onConnect?.();
+            onConnectRef.current?.();
         };
 
         ws.onclose = () => {
             setStatus('disconnected');
-            onDisconnect?.();
+            onDisconnectRef.current?.();
 
             // Attempt reconnection
             if (reconnectCountRef.current < reconnectAttempts) {
@@ -68,19 +79,19 @@ export function useWebSocket(url: string | null, options: UseWebSocketOptions = 
 
         ws.onerror = (event) => {
             setStatus('error');
-            onError?.(event);
+            onErrorRef.current?.(event);
         };
 
         ws.onmessage = (event) => {
             try {
                 const message = JSON.parse(event.data) as WebSocketMessage;
                 setLastMessage(message);
-                onMessage?.(message);
+                onMessageRef.current?.(message);
             } catch (e) {
                 console.error('Failed to parse WebSocket message:', e);
             }
         };
-    }, [url, onMessage, onConnect, onDisconnect, onError, reconnectAttempts, reconnectInterval]);
+    }, [url, reconnectAttempts, reconnectInterval]);
 
     const disconnect = useCallback(() => {
         if (reconnectTimeoutRef.current) {
@@ -171,18 +182,21 @@ export function useHostWebSocket(
     } = {}
 ) {
     const handleMessage = useCallback((message: WebSocketMessage) => {
+        const payload = message.payload as Record<string, unknown> || {};
+        const event = { ...payload, type: message.type };
+
         switch (message.type) {
             case 'player_joined':
-                handlers.onPlayerJoined?.(message as PlayerJoinedEvent);
+                handlers.onPlayerJoined?.(event as unknown as PlayerJoinedEvent);
                 break;
             case 'player_left':
-                handlers.onPlayerLeft?.(message as PlayerLeftEvent);
+                handlers.onPlayerLeft?.(event as unknown as PlayerLeftEvent);
                 break;
             case 'leaderboard_update':
-                handlers.onLeaderboardUpdate?.(message as LeaderboardUpdateEvent);
+                handlers.onLeaderboardUpdate?.(event as unknown as LeaderboardUpdateEvent);
                 break;
             case 'player_progress_update':
-                handlers.onPlayerProgress?.(message as PlayerProgressEvent);
+                handlers.onPlayerProgress?.(event as unknown as PlayerProgressEvent);
                 break;
         }
     }, [handlers]);
@@ -194,16 +208,11 @@ export function useHostWebSocket(
 // Player WebSocket Hook
 // ============================================
 
+import { type Question } from '@/lib/api';
+
 export interface NextQuestionEvent {
     type: 'next_question';
-    question: {
-        key: string;
-        type: 'ESSAY' | 'DEGREE';
-        prompt: string;
-        pointsMax?: number;
-        scaleMin?: number;
-        scaleMax?: number;
-    };
+    question: Question;
 }
 
 export interface EvaluationResultEvent {
@@ -218,7 +227,12 @@ export interface ErrorEvent {
     message: string;
 }
 
-export type PlayerEvent = NextQuestionEvent | EvaluationResultEvent | ErrorEvent;
+export interface RoomStartedEvent {
+    type: 'room_started';
+    status: 'ACTIVE';
+}
+
+export type PlayerEvent = NextQuestionEvent | EvaluationResultEvent | ErrorEvent | RoomStartedEvent;
 
 export function usePlayerWebSocket(
     url: string | null,
@@ -226,18 +240,25 @@ export function usePlayerWebSocket(
         onNextQuestion?: (event: NextQuestionEvent) => void;
         onEvaluationResult?: (event: EvaluationResultEvent) => void;
         onError?: (event: ErrorEvent) => void;
+        onRoomStarted?: (event: RoomStartedEvent) => void;
     } = {}
 ) {
     const handleMessage = useCallback((message: WebSocketMessage) => {
+        const payload = message.payload as Record<string, unknown> || {};
+        const event = { ...payload, type: message.type };
+
         switch (message.type) {
             case 'next_question':
-                handlers.onNextQuestion?.(message as NextQuestionEvent);
+                handlers.onNextQuestion?.(event as unknown as NextQuestionEvent);
                 break;
             case 'evaluation_result':
-                handlers.onEvaluationResult?.(message as EvaluationResultEvent);
+                handlers.onEvaluationResult?.(event as unknown as EvaluationResultEvent);
                 break;
             case 'error':
-                handlers.onError?.(message as ErrorEvent);
+                handlers.onError?.(event as unknown as ErrorEvent);
+                break;
+            case 'room_started':
+                handlers.onRoomStarted?.(event as unknown as RoomStartedEvent);
                 break;
         }
     }, [handlers]);

@@ -7,7 +7,7 @@ type SurveySettings struct {
 	SatisfactoryThreshold float64 `json:"satisfactoryThreshold" bson:"satisfactoryThreshold"` // 0-1, for ESSAY gating
 	MaxFollowUps          int     `json:"maxFollowUps" bson:"maxFollowUps"`                   // per question
 	DefaultPointsMax      int     `json:"defaultPointsMax" bson:"defaultPointsMax"`
-	AllowSkipImmediately  bool    `json:"allowSkipImmediately" bson:"allowSkipImmediately"`
+	AllowSkipAfter        int     `json:"allowSkipAfter" bson:"allowSkipAfter"` // number of attempts before skip allowed
 }
 
 // Survey is a persistent template created by a host
