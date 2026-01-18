@@ -2,10 +2,8 @@ const getApiBase = () => {
     if (typeof window !== 'undefined' && (window as any).__RUNTIME_CONFIG__?.API_URL) {
         return (window as any).__RUNTIME_CONFIG__.API_URL;
     }
-    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/v1';
+    return process.env.NEXT_PUBLIC_API_URL || 'http://api.champanzee.tech/v1';
 };
-
-const API_BASE = getApiBase();
 
 // ============================================
 // Types
@@ -208,6 +206,7 @@ async function request<T>(
     endpoint: string,
     options: RequestInit = {}
 ): Promise<T> {
+    const API_BASE = getApiBase();
     const url = `${API_BASE}${endpoint}`;
 
     const headers: Record<string, string> = {
@@ -480,6 +479,7 @@ export const surveymonkey = {
 export function getHostWebSocketUrl(code: string): string | null {
     const token = getToken('host');
     if (!token) return null;
+    const API_BASE = getApiBase();
     const wsBase = API_BASE.replace('http', 'ws');
     return `${wsBase}/ws/rooms/${code}/host?token=${token}`;
 }
@@ -487,6 +487,7 @@ export function getHostWebSocketUrl(code: string): string | null {
 export function getPlayerWebSocketUrl(code: string): string | null {
     const token = getToken('player');
     if (!token) return null;
+    const API_BASE = getApiBase();
     const wsBase = API_BASE.replace('http', 'ws');
     return `${wsBase}/ws/rooms/${code}/player?token=${token}`;
 }
