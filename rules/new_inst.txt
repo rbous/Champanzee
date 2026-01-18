@@ -1,0 +1,532 @@
+Alright — here’s the “full brain” of the system: how AI evaluation + analytics (L1–L4) should work, how it powers question generation in real time, and how the host accesses everything after the room ends.
+
+I’m going to describe it as an **engine** with clear **data products** (signals, profiles, memory, reports) and **pipelines** (real-time + post-game), because that’s the cleanest way to build it.
+
+---
+
+# 0) The big idea
+
+You don’t want “AI answers questions.”
+You want:
+
+**Answers → Signals → Aggregates → Decisions → Better questions + analytics**
+
+Where:
+
+* **Signals** = structured features extracted per response
+* **Aggregates** = rolling stats per question + per room
+* **Decisions** = follow-up strategy + question routing
+* **Reports** = what host sees live and after the room
+
+Everything becomes reliable + optimized once you commit to that.
+
+---
+
+# 1) What “AI analytics” means in your app
+
+There are two distinct products:
+
+## A) Real-time intelligence (during the room)
+
+* Fast, minimal, used to:
+
+  * decide follow-ups
+  * update leaderboards
+  * show live analytics summaries to host
+
+## B) Post-room insights (after the room ends)
+
+* Heavier, deeper summarization across all players
+* Used for:
+
+  * final host report
+  * suggested improved surveys
+  * exporting data
+
+The key is: **don’t block gameplay on deep analytics**.
+
+---
+
+# 2) The foundation: Signals (the one schema that unlocks everything)
+
+Every answer (essay, degree, MCQ) produces a standardized “signals” object.
+
+### Signals (minimum recommended)
+
+**For ESSAY / SHORT_TEXT**
+
+* `qualityScore` (0..1)
+* `themes[]` (tags)
+* `missing[]` (what details are missing: example/context/numbers/why/tradeoff)
+* `specificity` (0..1)
+* `clarity` (0..1)
+* `sentiment` (-1..+1) (optional)
+* `summary` (1 sentence)
+* `risk_flags[]` (spam/irrelevant/toxic)
+
+**For DEGREE/RATING**
+
+* `value` (1..5)
+* `polarity` (neg/neutral/pos derived)
+* `themes[]` (from question metadata or inferred from nearby context)
+* `followup_hint` (like “ask why low”)
+* (optional) `confidence` or `importance` if you add those sliders
+
+**For MULTIPLE CHOICE**
+
+* `choice`
+* `choice_group` (optional: maps to a theme)
+* `themes[]`
+* `followup_hint`
+
+These signals should be small and deterministic-ish.
+
+**Why this is critical:**
+Signals let you compute Level 3–4 analytics *incrementally* without re-reading giant essays.
+
+---
+
+# 3) Level 1: Per-answer intelligence (L1)
+
+L1 happens on every submission.
+
+## L1 outputs (what the player gets)
+
+* `resolution` = SAT / UNSAT / SKIPPED (skip is player action)
+* `scoreDelta` (points awarded)
+* `evalSummary` (1–2 lines max; never long)
+* `nextStep`:
+
+  * `NEXT_BASE`
+  * `FOLLOW_UP_AVAILABLE`
+  * `DONE`
+* `canSkip` flag (true if allowed)
+
+## L1 logic by question type
+
+### Essay
+
+1. Gemini evaluates quality + sincerity and extracts signals
+2. Server clamps scoring
+3. SAT check:
+
+   * compare `qualityScore` vs threshold (host-configurable)
+4. If UNSAT:
+
+   * decide follow-up strategy (see L3/L4)
+   * offer follow-up and/or edit/skip UX
+
+### Degree / Rating
+
+1. No satisfactory gate
+2. Server awards low/medium points deterministically
+3. Trigger follow-up based on rules:
+
+   * ≤2 → ask negative why + improvement
+   * =3 → ask what would make it higher
+   * ≥4 → ask what worked + what would perfect it
+   * outlier vs room median → ask why they differ (optional)
+4. Update analytics memory
+
+### MCQ
+
+1. Score deterministic (usually low)
+2. Branch follow-up if choice indicates strong stance or conflict
+
+**Important:** L1 must be fast. If Gemini is slow, you can:
+
+* return `received:true` quickly
+* push results via WS once ready
+
+---
+
+# 4) Level 2: Per-player intelligence (L2)
+
+L2 is lightweight and derived from the last few signals.
+
+Store a compact rolling “player profile” in Redis:
+
+### Player profile (rolling)
+
+* `effortTrend` (based on length + specificity + clarity, not length alone)
+* `consistencyScore` (do their stances conflict across related questions?)
+* `followupFriction` (how often they skip follow-ups or hit UNSAT repeatedly)
+* `topicAffinity` (themes they talk about most)
+* `style` (brief archetype for internal use: “brief”, “detailed”, “emotional”, “analytical”)
+
+## How L2 is used
+
+* to personalize follow-ups:
+
+  * if low effort → ask simpler, more structured follow-up (MCQ/degree instead of essay)
+  * if inconsistent → challenge gently (“Earlier you said X, now Y — what changed?”)
+  * if high friction → show “skip allowed” sooner, minimize branching
+* to help host dashboard:
+
+  * “X% of users show high friction on Q3”
+
+Keep L2 **non-judgmental** and internal. It’s a tool, not a label to show players.
+
+---
+
+# 5) Level 3: Per-question intelligence (L3)
+
+This is the most important for “better follow-ups in real-time.”
+
+For each base question Qk, maintain a rolling `questionProfile`.
+
+### QuestionProfile (Redis)
+
+* `themeCounts` (top themes)
+* `missingCounts` (what people commonly omit)
+* `misunderstandings[]` (top 3–5 bullets)
+* `satCount`, `unsatCount`, `skipCount`
+* `followupTriggeredCount`
+* `followupHelpedCount` (did follow-up lead to SAT or improved specificity/clarity?)
+* For rating questions:
+
+  * `ratingHist` (1..5)
+  * `mean/median/variance`
+* Optional mini-clusters (2–5 viewpoint buckets)
+
+## How L3 is computed (incremental, cheap)
+
+Every time an answer comes in:
+
+* increment counters from `signals`
+* update “misunderstandings” occasionally (not every answer)
+
+### “Misunderstandings” update trick
+
+Don’t ask Gemini every time. Do it periodically:
+
+* every N answers for that question (like every 10)
+* or every 30 seconds if active
+
+Feed Gemini:
+
+* recent summaries (not full essays)
+* top missing details
+* top themes
+  Ask it to output 3 misunderstandings and 3 “best probing angles”.
+
+This becomes part of question profile.
+
+## How L3 improves follow-ups in real time
+
+When a player answers Qk:
+
+* if they are missing “example” and “context”
+* and L3 shows most people misunderstand term “X”
+  then follow-up becomes:
+* “Can you give a concrete example from when you used X?”
+* “When you say X, do you mean A or B?” (disambiguation)
+
+This is how you get follow-ups that feel “smart” instead of generic.
+
+---
+
+# 6) Level 4: Room intelligence (L4)
+
+L4 is about cohort patterns and “what’s emerging.”
+
+Room memory is a compact summary used for:
+
+* host analytics
+* better branching (preference B) while staying in scope
+
+### RoomMemory (Redis)
+
+* `globalThemesTop[]`
+* `contrasts[]` (2–5 axes of disagreement)
+* `frictionPoints[]` (questions with high skip/unsat)
+* `outlierThemes[]` (rare but interesting themes)
+* `recommendedProbes[]` (best next questions to ask within scope)
+
+## How L4 is computed
+
+Same incremental approach:
+
+* aggregate across question profiles
+* update contrasts occasionally
+
+### Contrasts (axes) example
+
+“People split on onboarding:
+Group A thinks it’s fast but confusing, Group B thinks it’s slow but clear.”
+
+This is extremely powerful for follow-ups:
+
+* for someone in Group A: ask about clarity improvements
+* for someone in Group B: ask about speed improvements
+* for outliers: ask “why different?”
+
+## How L4 helps generate new questions mid-room
+
+Two patterns:
+
+### A) Player-personal branching
+
+If player themes match a rising room theme:
+
+* ask deeper follow-up on that theme
+  Example:
+* room theme: “trust/security concerns”
+* player mentions it → ask “what specifically reduces trust?”
+
+### B) Cohort-driven insertion (optional)
+
+If room discovers a major gap, you can insert a new base question into queues for players who haven’t reached that stage yet:
+
+* “Many people mention pricing confusion — quick: what part of pricing is unclear?”
+
+This is optional but very powerful.
+
+---
+
+# 7) How follow-up generation should actually work (best strategy)
+
+Follow-up generation should be **policy-driven**, not random.
+
+## Step 1: Choose a follow-up mode (deterministic)
+
+Use signals + L3/L4 + L2:
+
+* If missing details → **Clarify**
+* If rating low/high → **Why / Improve / Perfect**
+* If inconsistency detected → **Challenge**
+* If aligned with a cluster → **Deepen within cluster**
+* If outlier → **Explore outlier** (preference B)
+* If host wants tradeoffs → **Compare**
+
+## Step 2: Pool-first, then on-demand
+
+To be optimized:
+
+1. Try to select from **host-approved pool** for that mode and question.
+2. If no match or needs personalization → Gemini generates on-demand follow-up.
+3. Validate follow-up is in scope via `reason_in_scope`.
+
+## Step 3: Enforce limits
+
+* max follow-ups per base question (e.g., 2)
+* max tries before skip offered (e.g., 2)
+* never trap a player
+
+## Step 4: Record effectiveness
+
+Whenever a follow-up is asked, track:
+
+* did it lead to SAT?
+* did specificity/clarity improve?
+
+This trains your system *within the same room*:
+
+* follow-up patterns that work become preferred.
+
+---
+
+# 8) “Host context / presentation” (keeping B within scope)
+
+If host provides context (slides, problem statement, product pitch):
+
+1. AI builds a **Scope Anchor**
+
+   * intent bullets (what they’re surveying)
+   * key concepts/glossary
+   * constraints (what not to drift into)
+2. Store scope anchor in Redis and include it in:
+
+   * follow-up generation
+   * post-room report generation
+   * pool generation
+
+Branching is allowed only if:
+
+* follow-up’s `reason_in_scope` ties back to intent bullets
+
+Server can hard-reject follow-ups that fail this.
+
+---
+
+# 9) Live analytics for host (during room)
+
+Host dashboard should show “decision-grade” analytics, not essays.
+
+### Suggested live widgets
+
+Per question:
+
+* rating histogram + mean/median
+* sat/unsat/skip rates
+* top themes (5)
+* top missing details (3)
+* top misunderstanding bullets (3)
+  Room-wide:
+* top themes
+* contrasts
+* top friction questions
+* “recommended probes” (AI suggestions)
+
+### How it updates
+
+* backend emits `analytics_update` over WS every X seconds or on meaningful changes
+* payload is compact summaries from Redis memory (no heavy data)
+
+---
+
+# 10) After the room ends: how host accesses analytics
+
+## A) End-of-room snapshot
+
+When host ends room (or TTL triggers end):
+
+1. backend freezes:
+
+   * final leaderboard
+   * question profiles
+   * room memory
+2. writes a RoomReport doc to Mongo:
+
+   * `roomReportId`
+   * aggregates + metadata
+3. triggers optional AI “report builder” job
+
+## B) Report builder job (deep insights)
+
+This job can take a bit longer (not gameplay blocking).
+Input:
+
+* aggregates
+* sampled answer summaries per cluster/theme
+* host scope anchor
+
+Output structured report:
+
+* executive summary
+* key themes with evidence snippets (anonymized)
+* per-question insights:
+
+  * what worked
+  * misunderstandings
+  * what follow-ups were effective
+  * where friction happened
+* contrasts/segments
+* recommended new base questions for next time
+* recommended edits to existing questions (clarity improvements)
+
+## C) Host endpoints (post-room)
+
+Host can request:
+
+* `GET /v1/reports/{roomCode}` (quick snapshot)
+* `GET /v1/reports/{roomCode}/full` (includes AI-generated narrative report)
+* `GET /v1/reports/{roomCode}/export.csv` (optional)
+
+Even if the AI report isn’t ready yet, snapshot is.
+
+---
+
+# 11) How analytics generate *new* questions (the actual mechanics)
+
+There are 3 ways new questions appear:
+
+## 1) Pool generation (before or during room)
+
+AI uses:
+
+* scope anchor
+* base questions
+* L3 profile hints (if room already has answers)
+  Outputs:
+* clarify/deepen/branch/challenge/compare pools for each base question
+
+Host can approve/edit these pools.
+
+## 2) On-demand questions (per player)
+
+AI uses:
+
+* player signals + summaries
+* question profile summary (L3)
+* room memory summary (L4)
+* scope anchor
+  Outputs:
+* 1–2 follow-ups with `reason_in_scope`
+
+## 3) “Next survey suggestions” (post-room)
+
+AI uses:
+
+* final per-question friction + misunderstandings
+* emerging themes and contrasts
+  Outputs:
+* new base questions to add next time
+* rewrites for confusing questions
+* optional “branch module” sets (if user falls into a cluster, ask these 2 extra questions)
+
+This is how you turn one room into a better survey template.
+
+---
+
+# 12) Implementation details that matter a lot
+
+## A) Don’t store full essays in Redis
+
+Store:
+
+* summaries + signals
+  Keep full text in Mongo.
+
+## B) Keep WS payloads small
+
+Send summaries/metrics, not raw responses.
+
+## C) Use Redis Streams for eval jobs (recommended)
+
+* prevents API server blocking
+* scales horizontally
+* lets you retry on AI failures
+
+## D) Validate AI outputs (strict JSON)
+
+* schema validate
+* clamp points
+* enforce in-scope
+* cap follow-up count
+
+## E) Privacy and safety
+
+* anonymize evidence snippets in reports
+* avoid storing sensitive user info
+* keep room codes unguessable enough + rate-limit joins
+
+---
+
+# 13) If you want “most optimized” behavior: a simple cadence
+
+**On each answer:**
+
+* do L1 eval/signals
+* update L2 player profile
+* update L3 question profile counters
+* update L4 room memory counters
+
+**Every 10 answers per question (or every 30s):**
+
+* refresh misunderstandings + recommended probes (small AI call)
+
+**At end of room:**
+
+* freeze aggregates
+* run report builder (big AI call with sampling)
+
+This gives you the “advanced” feel without insane cost or latency.
+
+---
+
+If you want, I can also give you:
+
+* the exact **data shapes** for `QuestionProfile` and `RoomReport`
+* the exact **follow-up policy function** (pseudocode) that chooses mode + pool vs on-demand
+* the exact **WS analytics_update payload** that’s compact but useful

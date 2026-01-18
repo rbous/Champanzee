@@ -1,39 +1,42 @@
 package model
 
-import "time"
-
+// QuestionType defines the type of question
 type QuestionType string
 
 const (
-	QuestionTap       QuestionType = "tap"        // "Which screen felt more confusing?" (tap to choose)
-	QuestionDrag      QuestionType = "drag"       // "Drag the frustration meter"
-	QuestionPick      QuestionType = "pick"       // "Pick what slowed you down"
-	QuestionPredict   QuestionType = "predict"    // "Predict what others disliked most"
-	QuestionTypeWords QuestionType = "type_words" // "Type 3 words to describe the experience"
-	QuestionRate      QuestionType = "rate"       // Rating scales, sliders
+	QuestionTypeEssay  QuestionType = "ESSAY"  // Free text, AI-evaluated, can gate
+	QuestionTypeDegree QuestionType = "DEGREE" // Rating/slider, never gates
 )
 
-type PointsConfig struct {
-	SpeedMultiplier   float64 `json:"speedMultiplier" bson:"speedMultiplier"`     // Bonus for quick responses
-	ClarityMultiplier float64 `json:"clarityMultiplier" bson:"clarityMultiplier"` // Bonus for clear, detailed responses
-	InsightMultiplier float64 `json:"insightMultiplier" bson:"insightMultiplier"` // Bonus for unique insights
-	BasePoints        int     `json:"basePoints" bson:"basePoints"`               // Base points for participation
+// Question is a runtime question instance (base or follow-up)
+type Question struct {
+	Key       string       `json:"key"`                 // e.g., "Q1", "Q1.1", "Q1.2"
+	ParentKey string       `json:"parentKey,omitempty"` // For follow-ups, points to base question
+	Type      QuestionType `json:"type"`
+	Prompt    string       `json:"prompt"`
+	Rubric    string       `json:"rubric,omitempty"` // Grading guidance for AI
+	PointsMax int          `json:"pointsMax"`
+	Threshold float64      `json:"threshold,omitempty"` // ESSAY: satisfactory threshold
+	ScaleMin  int          `json:"scaleMin,omitempty"`  // DEGREE only
+	ScaleMax  int          `json:"scaleMax,omitempty"`  // DEGREE only
 }
 
-type Question struct {
-	ID            string       `json:"id" bson:"_id,omitempty"`
-	QuestionSetID string       `json:"questionSetId" bson:"questionSetId"`
-	Type          QuestionType `json:"type" bson:"type"`
-	Text          string       `json:"text" bson:"text"`
-	Options       []string     `json:"options,omitempty" bson:"options,omitempty"`   // for pick/tap questions
-	MinWords      int          `json:"minWords,omitempty" bson:"minWords,omitempty"` // for type_words
-	MaxWords      int          `json:"maxWords,omitempty" bson:"maxWords,omitempty"` // for type_words
-	ScaleMin      int          `json:"scaleMin,omitempty" bson:"scaleMin,omitempty"` // for rate questions (1-10, etc.)
-	ScaleMax      int          `json:"scaleMax,omitempty" bson:"scaleMax,omitempty"` // for rate questions
-	Points        PointsConfig `json:"points" bson:"points"`
-	TimeLimitSec  int          `json:"timeLimitSec" bson:"timeLimitSec"`
-	Category      string       `json:"category" bson:"category"`                       // e.g., "usability", "performance", "design"
-	Priority      int          `json:"priority" bson:"priority"`                       // 1-10, higher = more important for analysis
-	AIPrompts     []string     `json:"aiPrompts,omitempty" bson:"aiPrompts,omitempty"` // Hints for AI analysis
-	CreatedAt     time.Time    `json:"createdAt" bson:"createdAt"`
+// FollowUpMode describes the type of follow-up
+type FollowUpMode string
+
+const (
+	FollowUpClarify   FollowUpMode = "clarify"   // Missing details
+	FollowUpDeepen    FollowUpMode = "deepen"    // Examples, specifics
+	FollowUpBranch    FollowUpMode = "branch"    // Related angles within scope
+	FollowUpChallenge FollowUpMode = "challenge" // Inconsistencies
+	FollowUpCompare   FollowUpMode = "compare"   // Choose between options
+)
+
+// FollowUpPool holds pre-generated follow-up questions organized by mode
+type FollowUpPool struct {
+	Clarify   []Question `json:"clarify,omitempty"`
+	Deepen    []Question `json:"deepen,omitempty"`
+	Branch    []Question `json:"branch,omitempty"`
+	Challenge []Question `json:"challenge,omitempty"`
+	Compare   []Question `json:"compare,omitempty"`
 }
