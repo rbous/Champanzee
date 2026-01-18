@@ -1,0 +1,58 @@
+{
+  "schemas": {
+    "EvaluateAndExtractSignals": {
+      "output": {
+        "resolution": "SAT|UNSAT",
+        "qualityScore": 0.0,
+        "signals": {
+          "themes": [],
+          "missing": [],
+          "specificity": 0.0,
+          "clarity": 0.0,
+          "sentiment": 0.0,
+          "confidence_language": 0.0,
+          "summary": "",
+          "cluster_hint": "",
+          "risk_flags": []
+        },
+        "followup_hint": "",
+        "notes_for_host": ""
+      }
+    },
+    "GenerateFollowUps": {
+      "output": {
+        "followUps": [
+          {
+            "questionKey": "Q1.1",
+            "parentKey": "Q1",
+            "type": "ESSAY|DEGREE|MULTIPLE_CHOICE|SHORT_TEXT",
+            "prompt": "",
+            "rubric": "",
+            "pointsMax": 30,
+            "threshold": 0.7,
+            "reason_in_scope": ""
+          }
+        ]
+      }
+    },
+    "BuildScopeAnchorFromHostContext": {
+      "output": {
+        "scopeAnchor": {
+          "intentBullets": [],
+          "keyConcepts": [],
+          "glossary": [],
+          "constraints": [],
+          "examplesOfGoodAnswers": []
+        },
+        "suggestedPoolsByQuestion": {}
+      }
+    }
+  },
+  "prompting_rules": [
+    "Return ONLY valid JSON matching the schema; no markdown.",
+    "Keep summaries short (<=1 sentence).",
+    "Stay within scopeAnchor intent; branching must include reason_in_scope.",
+    "Never assign points beyond pointsMax; server clamps anyway.",
+    "If answer is irrelevant/spam, set risk_flags and resolution UNSAT."
+  ]
+}

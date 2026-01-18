@@ -1,0 +1,141 @@
+Kahoot-like Survey Rooms (Async Pace) — Full System Spec
+========================================================
+
+Overview
+--------
+This app creates “Kahoot-like” rooms for surveys where players progress at their own pace (NOT synchronized).
+A Host creates a Survey (template) with base questions, then creates a Room (live session). Players join with a
+room code, answer questions, and the Host sees a real-time leaderboard. AI (Gemini) evaluates open-ended answers,
+extracts structured “signals” for analytics, and generates follow-up questions (both pre-generated pools and on-demand
+personalized probes). Players can skip when answers are unsatisfactory, and drafts are preserved to prevent retyping.
+
+Goals (Level 1–4)
+-----------------
+L1: Per-answer intelligence: scoring, satisfactory decision (for essay), evaluation summary.
+L2: Per-player intelligence: consistency, effort, stance, progression, outlier detection (lightweight).
+L3: Per-question intelligence: misunderstandings, missing-details stats, follow-up effectiveness, rating distributions.
+L4: Per-room intelligence: top themes, clusters, contrasts (axes), friction points (skip/unsat), outliers.
+
+Key Design Principles
+---------------------
+1) Redis-first live state: room state, players, queues, leaderboard, room memory.
+2) MongoDB for persistence: surveys, full answers, evaluations, room reports.
+3) Every answer produces “signals” (structured data), regardless of question type.
+4) Separate Gating from Insight:
+   - Essay: can gate (satisfactory threshold)
+   - Degree/rating: never gates, but can trigger follow-ups and feed analytics.
+5) Hybrid follow-ups:
+   - Host-authored base questions (spine)
+   - AI suggested pools (host-curated, fast)
+   - On-demand personalized probes (player-specific)
+6) Skip + draft retention:
+   - Player can skip after attempts or immediately (config)
+   - Client drafts saved locally + server drafts saved in Redis
+
+Entities
+--------
+Survey (template, persistent):
+- hostId, title, scope/intent, settings (threshold, maxFollowUps, scoring weights), base questions[]
+
+Room (live session, mostly ephemeral):
+- roomCode, surveyId, hostId, status (LOBBY/ACTIVE/ENDED), createdAt, settings override
+- live aggregates (“memory”): themes, clusters, per-question profiles
+
+Player (per room):
+- playerId, nickname, score, queue, current question, attempts, follow-ups used, lastActiveAt
+
+Question Types
+--------------
+ESSAY:
+- Answer: free text
+- AI evaluation: qualityScore + satisfactory (threshold) + signals
+- High points; can gate progress; can spawn follow-ups
+DEGREE / RATING:
+- Answer: integer (e.g., 1–5) or slider
+- No satisfactory gate; deterministic score or participation points
+- Triggers follow-ups by rules (<=2, ==3, >=4) and outlier vs room median
+- Feeds analytics strongly (histograms, mean/median, variance)
+
+Follow-up Modes
+---------------
+- Clarify (missing details)
+- Deepen (examples, specifics, tradeoffs)
+- Branch within scope (preference “B”): explore related angles that map back to host intent
+- Challenge (inconsistencies)
+- Compare (choose between options)
+
+Flow Summary (End-to-End)
+-------------------------
+Host:
+1) Create Survey (Mongo)
+2) Create Room from Survey (Redis room state + optionally Mongo room doc)
+3) Upload/attach presentation/context -> AI builds scope anchor summary; store in Redis
+4) Generate AI follow-up pools per base question; host can approve/edit (store in Redis)
+5) Start Room -> status ACTIVE; host connects WS; receives leaderboard + analytics updates
+
+Player:
+1) Join Room -> gets playerId + token
+2) Receives first question from per-player queue
+3) Draft saved locally and optionally to Redis (server draft endpoint)
+4) Submit answer -> server stores answer, evaluates (sync or via job), updates aggregates + leaderboard
+5) If ESSAY not satisfactory -> follow-up (pool first, else on-demand); player can edit, answer FU, or skip
+6) If DEGREE triggers follow-up -> ask “why”/“what would improve” (pool or on-demand)
+7) Continue until queue empty -> player done
+
+Per-Player Queue (Async Pace)
+-----------------------------
+Each player has a personal queue initialized with base questions [Q1, Q2, Q3...].
+When follow-ups are needed, insert (or virtually insert) follow-ups with a parentKey=Qk.
+
+Skip handling:
+- If player skips a follow-up or base question Qk, mark parentKey Qk as “closed” so remaining follow-ups for Qk are auto-skipped.
+- Always preserve player’s last submitted answer and draft for that questionKey.
+
+Storage Plan
+------------
+Redis (live truth):
+- Room meta, players, leaderboard, per-player queues, per-question profiles, room memory, drafts/attempts, follow-up pools
+MongoDB (history truth):
+- surveys, responses (full text), evaluations, room reports
+
+AI Integration Plan
+-------------------
+Two AI steps:
+A) Evaluate + Extract Signals (always for ESSAY; optional for others)
+B) Generate Follow-ups (only when triggered)
+
+Signals should be JSON and small:
+- themes[]
+- missing[]
+- specificity (0..1)
+- clarity (0..1)
+- sentiment (-1..1)
+- confidence_language (0..1)
+- summary (1 sentence)
+- cluster_hint (optional)
+- risk_flags (optional: toxicity, spam, irrelevant)
+
+Scoring
+-------
+Server-owned scoring is mandatory:
+- ESSAY: points based on qualityScore * pointsMax (clamped)
+- DEGREE: small fixed or scaled points (no gate)
+- Prevent prompt injection by clamping points and ignoring AI-suggested points if desired
+
+Analytics Outputs
+-----------------
+Real-time (Redis):
+- Leaderboard (ZSET)
+- Per-question: rating histogram, mean/median/variance; sat/unsat; skips; themes; missing details; follow-up effectiveness
+- Room: top themes; contrasts; friction points; recommended probes
+
+Post-room (Mongo + optional AI report job):
+- Executive summary + themes + clusters + recommendations
+- Export CSV/JSON
+
+Non-Functional Requirements
+---------------------------
+- Idempotency: dedupe submissions by (roomCode, playerId, questionKey, attemptNo/clientAttemptId)
+- Rate limits: join brute force protection, answer spam protection
+- Multi-instance WS: broadcast using Redis Pub/Sub or Streams
+- Privacy: anonymize analytics snippets; avoid storing unnecessary PII
