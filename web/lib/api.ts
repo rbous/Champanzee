@@ -254,6 +254,10 @@ export const auth = {
 
     logout: () => {
         localStorage.removeItem('host_token');
+        localStorage.removeItem('player_token');
+        localStorage.removeItem('player_id');
+        localStorage.removeItem('room_code');
+        localStorage.removeItem('room_allow_skip_after');
     },
 
     isLoggedIn: (): boolean => {

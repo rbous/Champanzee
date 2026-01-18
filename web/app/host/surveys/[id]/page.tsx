@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { surveys } from '@/lib/api';
+import { auth, surveys } from '@/lib/api';
 import SurveyForm, { QuestionInput, toQuestionInput } from '@/components/SurveyForm';
 import GameBackground from '@/components/GameBackground';
 
@@ -93,7 +93,16 @@ export default function EditSurvey() {
             <div className="min-h-screen flex items-center justify-center">
                 <div className="text-center">
                     <div className="spinner mx-auto mb-4" style={{ width: 40, height: 40 }} />
-                    <p className="font-bold text-[var(--text-muted)]">Loading survey...</p>
+                    <p className="font-bold text-[var(--text-muted)] mb-4">Loading survey...</p>
+                    <button
+                        onClick={() => {
+                            auth.logout();
+                            router.push('/host/login');
+                        }}
+                        className="btn btn-ghost text-xs"
+                    >
+                        Logout & Exit
+                    </button>
                 </div>
             </div>
         );

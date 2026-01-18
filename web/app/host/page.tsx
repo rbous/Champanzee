@@ -54,7 +54,13 @@ export default function HostDashboard() {
             <div className="min-h-screen flex items-center justify-center">
                 <div className="text-center">
                     <div className="spinner mx-auto mb-4" style={{ width: 40, height: 40 }} />
-                    <p className="font-bold text-[var(--text-muted)]">Loading the magic...</p>
+                    <p className="font-bold text-[var(--text-muted)] mb-4">Loading the magic...</p>
+                    <button
+                        onClick={handleLogout}
+                        className="btn btn-ghost text-xs"
+                    >
+                        Logout & Exit
+                    </button>
                 </div>
             </div>
         );

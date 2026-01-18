@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { player, getPlayerWebSocketUrl, type Question, type SubmitAnswerResponse } from '@/lib/api';
+import { auth, player, getPlayerWebSocketUrl, type Question, type SubmitAnswerResponse } from '@/lib/api';
 import { usePlayerWebSocket, type NextQuestionEvent, type EvaluationResultEvent, type RoomEndedEvent } from '@/hooks/useWebSocket';
 import LobbyBackground from '@/components/LobbyBackground';
 import GameBackground from '@/components/GameBackground';
@@ -260,7 +260,16 @@ export default function PlayerGame() {
             <div className="min-h-screen flex items-center justify-center">
                 <div className="text-center">
                     <div className="spinner mx-auto mb-4" style={{ width: 40, height: 40 }} />
-                    <p className="text-[var(--foreground-muted)]">Loading...</p>
+                    <p className="text-[var(--foreground-muted)] mb-4">Loading...</p>
+                    <button
+                        onClick={() => {
+                            auth.logout();
+                            router.push('/');
+                        }}
+                        className="btn btn-ghost text-xs"
+                    >
+                        Logout & Exit
+                    </button>
                 </div>
             </div>
         );
@@ -274,9 +283,18 @@ export default function PlayerGame() {
                 <div className="relative z-10 text-center card-party max-w-md animate-bounce-slow">
                     <div className="text-6xl mb-6">⏳</div>
                     <h1 className="text-3xl font-black mb-4">Waiting for Party...</h1>
-                    <p className="text-xl font-bold text-[var(--text-muted)]">
+                    <p className="text-xl font-bold text-[var(--text-muted)] mb-8">
                         The host will start the game soon. Get ready!
                     </p>
+                    <button
+                        onClick={() => {
+                            auth.logout();
+                            router.push('/');
+                        }}
+                        className="btn btn-secondary w-full"
+                    >
+                        Logout & Exit
+                    </button>
                 </div>
             </div>
         );
@@ -297,7 +315,10 @@ export default function PlayerGame() {
                         {totalPoints || 0} pts
                     </div>
                     <button
-                        onClick={() => router.push('/')}
+                        onClick={() => {
+                            auth.logout();
+                            router.push('/');
+                        }}
                         className="btn btn-secondary w-full"
                     >
                         Back to Home
@@ -323,9 +344,7 @@ export default function PlayerGame() {
                     <button
                         onClick={() => {
                             if (confirm('Are you sure you want to leave the quiz? Your progress is saved.')) {
-                                localStorage.removeItem('player_token');
-                                localStorage.removeItem('player_id');
-                                localStorage.removeItem('room_code');
+                                auth.logout();
                                 router.push('/');
                             }
                         }}
