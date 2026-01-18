@@ -1,0 +1,11 @@
+.git
+web/node_modules
+api/vendor
+api/bin
+api/tmp
+api/2026champs
+api/2026champs.exe
+api/main.exe
+api/server
+*.log
+.env
