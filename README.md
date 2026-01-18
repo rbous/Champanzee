@@ -43,6 +43,3 @@ To stop and remove volumes (reset data):
 ```bash
 docker-compose down -v
 ```
-
-WHAT IS THIS DIDDY BLUD DOING ON THE CALCULATOR IS BLUD ENSTEIN 
-WHAT IS THIS DIDDY BLUD DOING ON THE CALCULATOR IS BLUD EPSTEIN   
