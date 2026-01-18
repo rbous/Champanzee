@@ -6,6 +6,8 @@ import (
 	"2026champs/internal/repository"
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -216,12 +218,11 @@ func (s *AnswerService) SubmitAnswer(ctx context.Context, roomCode, playerID str
 			response.PointsEarned = points
 			response.EvalSummary = answer.EvalSummary
 
-			if answer.Resolution == model.ResolutionSat {
-				followUp, err := s.getOrGenerateFollowUp(asyncCtx, rCode, pID, q, evalResult, answer.TextAnswer)
-				if err == nil && followUp != nil {
-					if err := s.playerSvc.InsertFollowUp(asyncCtx, rCode, pID, followUp); err == nil {
-						response.FollowUp = followUp
-					}
+			// Try to generate follow-up - AI will decide if needed based on gap analysis
+			followUp, err := s.getOrGenerateFollowUp(asyncCtx, rCode, pID, q, evalResult, answer.TextAnswer)
+			if err == nil && followUp != nil {
+				if err := s.playerSvc.InsertFollowUp(asyncCtx, rCode, pID, followUp); err == nil {
+					response.FollowUp = followUp
 				}
 			}
 
@@ -353,6 +354,29 @@ func (s *AnswerService) getOrGenerateFollowUp(ctx context.Context, roomCode, pla
 		return nil, nil
 	}
 
+	// Calculate next key
+	base := question.Key
+	if idx := strings.Index(question.Key, "."); idx > 0 {
+		base = question.Key[:idx]
+	}
+	allAnswers, err := s.answerRepo.GetByRoomCode(ctx, roomCode)
+	if err != nil {
+		return nil, err
+	}
+	maxNum := 0
+	for _, ans := range allAnswers {
+		if strings.HasPrefix(ans.QuestionKey, base+".") {
+			parts := strings.Split(ans.QuestionKey, ".")
+			if len(parts) >= 2 {
+				if num, err := strconv.Atoi(parts[len(parts)-1]); err == nil && num > maxNum {
+					maxNum = num
+				}
+			}
+		}
+	}
+	nextNum := maxNum + 1
+	nextKey := fmt.Sprintf("%s.%d", base, nextNum)
+
 	// Try pool first
 	pool, err := s.poolCache.GetPool(ctx, roomCode, question.Key)
 	if err != nil {
@@ -397,7 +421,7 @@ func (s *AnswerService) getOrGenerateFollowUp(ctx context.Context, roomCode, pla
 	// Fetch conversation history
 	// We want all previous answers from this player in this room to give context
 	// In a real implementation, we might filter to just the current question thread (parent + siblings)
-	allAnswers, err := s.answerRepo.GetByRoomAndPlayer(ctx, roomCode, playerID)
+	allAnswers, err = s.answerRepo.GetByRoomAndPlayer(ctx, roomCode, playerID)
 	history := []model.Answer{}
 	if err == nil {
 		// Simple filter: include answers related to the same parent key or the question itself
@@ -423,5 +447,5 @@ func (s *AnswerService) getOrGenerateFollowUp(ctx context.Context, roomCode, pla
 
 	// Generate on-demand
 	player, _ := s.playerSvc.GetPlayer(ctx, roomCode, playerID)
-	return s.evaluator.GenerateFollowUp(ctx, question, player, evalResult, answerText, qProfile, roomMemory, history, surveyIntent)
+	return s.evaluator.GenerateFollowUp(ctx, question, player, evalResult, answerText, qProfile, roomMemory, history, surveyIntent, nextKey, base)
 }

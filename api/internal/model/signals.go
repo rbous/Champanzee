@@ -36,5 +36,6 @@ type GeneratedFollowUp struct {
 	Rubric        string       `json:"rubric,omitempty"`
 	PointsMax     int          `json:"pointsMax"`
 	Threshold     float64      `json:"threshold,omitempty"`
-	ReasonInScope string       `json:"reason_in_scope"` // Why this is relevant to survey intent
+	Options       []string     `json:"options,omitempty"` // For MCQ type
+	ReasonInScope string       `json:"reason_in_scope"`   // Why this is relevant to survey intent
 }

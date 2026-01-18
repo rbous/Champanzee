@@ -4,13 +4,14 @@ import { useState, useEffect } from 'react';
 import { type Question } from '@/lib/api';
 
 export type QuestionInput = {
-    type: 'ESSAY' | 'DEGREE';
+    type: 'ESSAY' | 'DEGREE' | 'MCQ';
     prompt: string;
     rubric: string;
     pointsMax: number;
     threshold: number;
     scaleMin: number;
     scaleMax: number;
+    options: string[];
 };
 
 export const defaultQuestion: QuestionInput = {
@@ -18,9 +19,10 @@ export const defaultQuestion: QuestionInput = {
     prompt: '',
     rubric: '',
     pointsMax: 100,
-    threshold: 0.6,
+    threshold: 0.5,
     scaleMin: 1,
     scaleMax: 5,
+    options: [],
 };
 
 // Helper to convert API Question to QuestionInput
@@ -30,9 +32,10 @@ export const toQuestionInput = (q: Question): QuestionInput => ({
     prompt: q.prompt || '',
     rubric: q.rubric || '',
     pointsMax: q.pointsMax || 100,
-    threshold: q.threshold || 0.6,
+    threshold: q.threshold || 0.5,
     scaleMin: q.scaleMin || 1,
     scaleMax: q.scaleMax || 5,
+    options: q.options || [],
 });
 
 interface SurveyFormProps {
@@ -108,6 +111,11 @@ export default function SurveyForm({
 
         if (questions.some(q => !q.prompt.trim())) {
             setFormError('All questions must have a prompt');
+            return;
+        }
+
+        if (questions.some(q => q.type === 'MCQ' && q.options.filter(opt => opt.trim()).length < 2)) {
+            setFormError('MCQ questions must have at least 2 options');
             return;
         }
 
@@ -222,6 +230,13 @@ export default function SurveyForm({
                                     >
                                         📊 Rating
                                     </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => updateQuestion(index, 'type', 'MCQ')}
+                                        className={`btn flex-1 ${q.type === 'MCQ' ? 'btn-primary' : 'btn-secondary'}`}
+                                    >
+                                        ✅ Multiple Choice
+                                    </button>
                                 </div>
                             </div>
 
@@ -271,7 +286,7 @@ export default function SurveyForm({
                                                 max={1}
                                                 step={0.1}
                                                 value={q.threshold}
-                                                onChange={(e) => updateQuestion(index, 'threshold', parseFloat(e.target.value) || 0.6)}
+                                                onChange={(e) => updateQuestion(index, 'threshold', parseFloat(e.target.value) || 0.5)}
                                             />
                                         </div>
                                     </div>
@@ -315,6 +330,63 @@ export default function SurveyForm({
                                         />
                                     </div>
                                 </div>
+                            )}
+
+                            {/* MCQ-specific fields */}
+                            {q.type === 'MCQ' && (
+                                <>
+                                    <div>
+                                        <label className="input-label">Options</label>
+                                        <div className="space-y-2">
+                                            {q.options.map((option, optIndex) => (
+                                                <div key={optIndex} className="flex gap-2">
+                                                    <input
+                                                        type="text"
+                                                        className="input flex-1"
+                                                        placeholder={`Option ${optIndex + 1}`}
+                                                        value={option}
+                                                        onChange={(e) => {
+                                                            const newOptions = [...q.options];
+                                                            newOptions[optIndex] = e.target.value;
+                                                            updateQuestion(index, 'options', newOptions);
+                                                        }}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const newOptions = q.options.filter((_, i) => i !== optIndex);
+                                                            updateQuestion(index, 'options', newOptions);
+                                                        }}
+                                                        className="btn btn-ghost text-[var(--error)]"
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                </div>
+                                            ))}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const newOptions = [...q.options, ''];
+                                                    updateQuestion(index, 'options', newOptions);
+                                                }}
+                                                className="btn btn-secondary w-full"
+                                            >
+                                                + Add Option
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="input-label">Points</label>
+                                        <input
+                                            type="number"
+                                            className="input"
+                                            min={1}
+                                            max={100}
+                                            value={q.pointsMax}
+                                            onChange={(e) => updateQuestion(index, 'pointsMax', parseInt(e.target.value) || 20)}
+                                        />
+                                    </div>
+                                </>
                             )}
                         </div>
                     </div>

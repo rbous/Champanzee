@@ -123,7 +123,28 @@ func (r *answerRepo) Update(ctx context.Context, answer *model.Answer) error {
 	}
 
 	answer.UpdatedAt = time.Now()
-	_, err = r.collection.ReplaceOne(ctx, bson.M{"_id": oid}, answer)
+
+	// Create update document excluding the ID
+	updateDoc := bson.M{
+		"$set": bson.M{
+			"roomCode":        answer.RoomCode,
+			"playerId":        answer.PlayerID,
+			"questionKey":     answer.QuestionKey,
+			"clientAttemptId": answer.ClientAttemptID,
+			"textAnswer":      answer.TextAnswer,
+			"degreeValue":     answer.DegreeValue,
+			"optionIndex":     answer.OptionIndex,
+			"status":          answer.Status,
+			"resolution":      answer.Resolution,
+			"tries":           answer.Tries,
+			"pointsEarned":    answer.PointsEarned,
+			"signals":         answer.Signals,
+			"evalSummary":     answer.EvalSummary,
+			"updatedAt":       answer.UpdatedAt,
+		},
+	}
+
+	_, err = r.collection.UpdateOne(ctx, bson.M{"_id": oid}, updateDoc)
 	return err
 }
 

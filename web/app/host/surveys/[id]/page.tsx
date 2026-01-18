@@ -67,6 +67,9 @@ export default function EditSurvey() {
                     scaleMin: q.scaleMin,
                     scaleMax: q.scaleMax,
                 }),
+                ...(q.type === 'MCQ' && {
+                    options: q.options.filter(opt => opt.trim() !== ''), // Filter out empty options
+                }),
             }));
 
             await surveys.update(id, {

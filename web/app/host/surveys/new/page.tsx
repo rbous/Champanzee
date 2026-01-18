@@ -30,45 +30,50 @@ export default function NewSurvey() {
                     prompt: "On a scale from 1 to 5, how satisfied are you with this smartphone overall?",
                     rubric: "",
                     pointsMax: 50,
-                    threshold: 0.6,
+                    threshold: 0.5,
                     scaleMin: 1,
                     scaleMax: 5,
+                    options: [],
                 },
                 {
                     type: 'ESSAY',
                     prompt: "Which feature do you find the most impressive? (Display, Battery, Camera, Speed, Design)",
                     rubric: "Look for specific mention of one of the listed features and why they like it.",
                     pointsMax: 100,
-                    threshold: 0.6,
+                    threshold: 0.5,
                     scaleMin: 1,
                     scaleMax: 5,
+                    options: [],
                 },
                 {
                     type: 'DEGREE',
                     prompt: "How would you rate the phone’s performance during everyday tasks?",
                     rubric: "",
                     pointsMax: 50,
-                    threshold: 0.6,
+                    threshold: 0.5,
                     scaleMin: 1,
                     scaleMax: 5,
+                    options: [],
                 },
                 {
                     type: 'ESSAY',
                     prompt: "What was the main reason you chose this phone? (Price, Features, Brand, Design, Reviews)",
                     rubric: "Identify the primary motivation factor.",
                     pointsMax: 100,
-                    threshold: 0.6,
+                    threshold: 0.5,
                     scaleMin: 1,
                     scaleMax: 5,
+                    options: [],
                 },
                 {
                     type: 'ESSAY',
                     prompt: "What is one thing you would improve or change about this smartphone?",
                     rubric: "Constructive criticism or specific feature requests.",
                     pointsMax: 100,
-                    threshold: 0.6,
+                    threshold: 0.5,
                     scaleMin: 1,
                     scaleMax: 5,
+                    options: [],
                 }
             ]
         });
@@ -98,6 +103,9 @@ export default function NewSurvey() {
                 ...(q.type === 'DEGREE' && {
                     scaleMin: q.scaleMin,
                     scaleMax: q.scaleMax,
+                }),
+                ...(q.type === 'MCQ' && {
+                    options: q.options.filter(opt => opt.trim() !== ''), // Filter out empty options
                 }),
             }));
 

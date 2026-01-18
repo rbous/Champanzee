@@ -85,7 +85,20 @@ func (r *surveyRepo) Update(ctx context.Context, survey *model.Survey) error {
 	}
 
 	survey.UpdatedAt = time.Now()
-	_, err = r.collection.ReplaceOne(ctx, bson.M{"_id": oid}, survey)
+
+	// Create update document excluding the ID
+	updateDoc := bson.M{
+		"$set": bson.M{
+			"hostId":    survey.HostID,
+			"title":     survey.Title,
+			"intent":    survey.Intent,
+			"settings":  survey.Settings,
+			"questions": survey.Questions,
+			"updatedAt": survey.UpdatedAt,
+		},
+	}
+
+	_, err = r.collection.UpdateOne(ctx, bson.M{"_id": oid}, updateDoc)
 	return err
 }
 

@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { player, getPlayerWebSocketUrl, type Question, type SubmitAnswerResponse } from '@/lib/api';
 import { usePlayerWebSocket, type NextQuestionEvent, type EvaluationResultEvent, type RoomEndedEvent } from '@/hooks/useWebSocket';
 
-type GameState = 'loading' | 'answering' | 'evaluated' | 'done' | 'waiting_for_ai';
+type GameState = 'loading' | 'answering' | 'evaluated' | 'done' | 'waiting_for_ai' | 'waiting_for_start';
 
 export default function PlayerGame() {
     const params = useParams();
@@ -107,7 +107,8 @@ export default function PlayerGame() {
                 }, 2500);
             }
         } else if (fullResult.resolution === 'UNSAT') {
-            // Stay
+            // Increment attempt count for skip logic
+            setAttemptCount(prev => prev + 1);
         } else if (!fullResult.nextQuestion && !fullResult.followUp) {
             setTimeout(() => {
                 setGameState('done');
@@ -153,6 +154,8 @@ export default function PlayerGame() {
             if (data.question) {
                 setCurrentQuestion(data.question);
                 setGameState('answering');
+            } else {
+                setGameState('waiting_for_start');
             }
             if (data.player) {
                 setTotalPoints(data.player.score || 0);
@@ -228,7 +231,22 @@ export default function PlayerGame() {
             <div className="min-h-screen flex items-center justify-center">
                 <div className="text-center">
                     <div className="spinner mx-auto mb-4" style={{ width: 40, height: 40 }} />
-                    <p className="text-[var(--foreground-muted)]">Loading question...</p>
+                    <p className="text-[var(--foreground-muted)]">Loading...</p>
+                </div>
+            </div>
+        );
+    }
+
+    // Waiting for room to start
+    if (gameState === 'waiting_for_start') {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <div className="text-center">
+                    <div className="text-6xl mb-4">⏳</div>
+                    <h1 className="text-2xl font-bold mb-2">Waiting for Game to Start</h1>
+                    <p className="text-[var(--foreground-muted)]">
+                        The host will start the game soon. Get ready!
+                    </p>
                 </div>
             </div>
         );
@@ -416,15 +434,6 @@ export default function PlayerGame() {
                                                 'Submit Answer'
                                             )}
                                         </button>
-
-                                        {attemptCount >= allowSkipAfter && (
-                                            <button
-                                                onClick={handleSkip}
-                                                className="btn btn-ghost"
-                                            >
-                                                Skip →
-                                            </button>
-                                        )}
                                     </div>
                                 )}
 
@@ -441,14 +450,12 @@ export default function PlayerGame() {
                                             Try Again
                                         </button>
 
-                                        {attemptCount >= allowSkipAfter && (
-                                            <button
-                                                onClick={handleSkip}
-                                                className="btn btn-ghost"
-                                            >
-                                                Skip Question
-                                            </button>
-                                        )}
+                                        <button
+                                            onClick={handleSkip}
+                                            className="btn btn-ghost"
+                                        >
+                                            Skip Question
+                                        </button>
                                     </div>
                                 )}
                             </>

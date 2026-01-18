@@ -52,40 +52,43 @@ func (s *EvaluatorService) EvaluateAnswer(ctx context.Context, question *model.Q
 }
 
 // GenerateFollowUp generates a personalized follow-up question (fast model)
-func (s *EvaluatorService) GenerateFollowUp(ctx context.Context, question *model.Question, player *model.Player, evalResult *model.EvaluationResult, answerText string, qProfile *model.QuestionProfile, roomMemory *model.RoomMemory, history []model.Answer, surveyIntent string) (*model.Question, error) {
+func (s *EvaluatorService) GenerateFollowUp(ctx context.Context, question *model.Question, player *model.Player, evalResult *model.EvaluationResult, answerText string, qProfile *model.QuestionProfile, roomMemory *model.RoomMemory, history []model.Answer, surveyIntent string, nextKey string, baseKey string) (*model.Question, error) {
 	if !s.config.IsEnabled() {
 		fmt.Println("[FollowUp] Config disabled, using mock")
-		return s.mockFollowUp(question), nil
+		return s.mockFollowUp(question, nextKey, baseKey), nil
 	}
 
 	fmt.Printf("[FollowUp] Generating for Q: %s | Answer: %.50s...\n", question.Key, answerText)
-	prompt := s.buildFollowUpPrompt(question, player, evalResult, answerText, qProfile, roomMemory, history, surveyIntent)
+	prompt := s.buildFollowUpPrompt(question, player, evalResult, answerText, qProfile, roomMemory, history, surveyIntent, baseKey)
 	response, err := s.callGemini(ctx, s.config.Models.FollowUp, prompt)
 	if err != nil {
 		fmt.Printf("[FollowUp] Call Error: %v\n", err)
-		return s.mockFollowUp(question), nil
+		return nil, err // Don't generate mock on error
 	}
 	fmt.Printf("[FollowUp] Raw Response: %s\n", response)
 
 	var gen model.FollowUpGeneration
 	if err := json.Unmarshal([]byte(response), &gen); err != nil {
-		return s.mockFollowUp(question), nil
+		fmt.Printf("[FollowUp] JSON Error: %v\n", err)
+		return nil, err // Don't generate mock on parse error
 	}
 
 	if len(gen.FollowUps) > 0 {
 		fu := gen.FollowUps[0]
 		return &model.Question{
-			Key:       fu.QuestionKey,
-			ParentKey: fu.ParentKey,
+			Key:       nextKey,
+			ParentKey: baseKey,
 			Type:      fu.Type,
 			Prompt:    fu.Prompt,
 			Rubric:    fu.Rubric,
 			PointsMax: fu.PointsMax,
 			Threshold: fu.Threshold,
+			Options:   fu.Options, // Add options for MCQ
 		}, nil
 	}
 
-	return s.mockFollowUp(question), nil
+	fmt.Printf("[FollowUp] No follow-up generated (AI decided not needed)\n")
+	return nil, nil // No follow-up needed
 }
 
 // GenerateFollowUpPool generates a pool of follow-up questions (quality model)
@@ -274,11 +277,17 @@ Extract themes, identify what's missing, and suggest a follow-up mode.
 IMPORTANT: Scoring Criteria
 - **Quality over Quantity**: "Essays" do NOT need to be long. A few (2-3) sentences should get a 1.0 (100%) qualityScore IF they are detailed, pertinent, and answer the prompt well.
 - **No Yapping**: Penalize vague, repetitive, or filler content ("yappering").
-- **Leniency**: Start at 0.7 for basic coherence. Only mark UNSAT for irrelevance or extreme brevity (1-2 words).`,
+- **Leniency**: Start at 0.5 for any coherent answer that attempts to address the question. Only mark UNSAT for completely irrelevant answers, gibberish, or extreme brevity (1-2 words with no substance). Good-faith attempts should pass.
+- **Grading Scale**: 
+  - 0.9-1.0: Excellent, detailed, insightful - going above and beyond (e.g., explaining why, providing examples, depth)
+  - 0.7-0.9: Good, solid answer that addresses the question with some elaboration
+  - 0.5-0.7: Okay, basic but acceptable - directly answering the question (e.g., what feature do you prefer)
+  - 0.3-0.5: Poor, minimal effort but not completely worthless
+  - 0.0-0.3: Irrelevant, gibberish, or no effort`,
 		question.Prompt, question.Rubric, question.Threshold, answer.TextAnswer)
 }
 
-func (s *EvaluatorService) buildFollowUpPrompt(question *model.Question, player *model.Player, evalResult *model.EvaluationResult, answerText string, qProfile *model.QuestionProfile, roomMemory *model.RoomMemory, history []model.Answer, surveyIntent string) string {
+func (s *EvaluatorService) buildFollowUpPrompt(question *model.Question, player *model.Player, evalResult *model.EvaluationResult, answerText string, qProfile *model.QuestionProfile, roomMemory *model.RoomMemory, history []model.Answer, surveyIntent string, baseKey string) string {
 	missingStr := strings.Join(evalResult.Signals.Missing, ", ")
 
 	// Context construction
@@ -353,33 +362,34 @@ SOCIAL CONTEXT (The Vibe):
 
 TASK:
 1. GAP ANALYSIS: Compare the Player Answer to the Survey Intent. What specific detail is missing that would make this answer truly valuable to the host?
-2. SOCIAL CHECK: Look at the Social Context. Is the player saying something unique, or echoing the crowd?
-3. GENERATE: Create a follow-up question that:
+2. DECISION: Should you ask a follow-up?
+   - YES if there's a significant gap that would add substantial value by getting more specific details that are missing and important for the survey intent
+   - NO if the answer is already complete, provides good data, or if asking more would be redundant, off-topic, or not add meaningful insights
+3. If YES, generate ONE follow-up question that:
    - Digs into the specific gap identified.
-   - Acknowledging what they already said (charismatic).
+   - Acknowledges what they already said (charismatic).
    - If they are echoing the crowd, ask for a personal nuance ("You mentioned X like everyone else, but how does that affect YOU specifically?").
    - If they are unique, ask them to elaborate on their unique angle.
    - STAYS IN CHARACTER: Friendly, curious, professional but casual.
    - KEEP IT CONCISE: Make the question engaging but not extremely long - aim for 1-2 sentences max.
+4. If NO, return an empty followUps array.
 
 Return ONLY valid JSON:
 {
   "followUps": [{
-    "questionKey": "%s.1",
-    "parentKey": "%s",
     "type": "ESSAY" or "MCQ",
     "prompt": "Your question text here",
-    "options": ["Option A", "Option B", "Option C", "Option D"], // Required if type is MCQ
+    "options": ["Option A", "Option B", "Option C", "Option D"], // Required if type is MCQ, omit for ESSAY
     "rubric": "Grade based on whether they answer the specific gap you asked about",
     "pointsMax": %d,
     "threshold": %.2f,
     "reason_in_scope": "I asked this because [explanation of the gap analysis]"
-  }]
+  }]  // Empty array [] if no follow-up needed
 }`,
 		surveyIntent, question.Prompt,
 		answerText, evalResult.Resolution, missingStr, historyStr,
 		peerCtx,
-		question.Key, question.Key, question.PointsMax/2, question.Threshold)
+		question.PointsMax/2, question.Threshold)
 }
 
 func (s *EvaluatorService) buildPoolPrompt(question *model.Question, surveyIntent string) string {
@@ -453,8 +463,8 @@ Generate a comprehensive but concise insight report.`,
 // Mock implementations
 func (s *EvaluatorService) mockEvaluate(question *model.Question, answer *model.Answer) *model.EvaluationResult {
 	wordCount := len(strings.Fields(answer.TextAnswer))
-	// Leniency adjustment: 10 words is a full 1.0 score now (was 50)
-	quality := float64(wordCount) / 10.0
+	// Leniency adjustment: Basic answer (5-10 words) gets ~0.5-0.7, elaboration gets higher
+	quality := float64(wordCount) / 15.0
 	if quality > 1.0 {
 		quality = 1.0
 	}
@@ -481,10 +491,10 @@ func (s *EvaluatorService) mockEvaluate(question *model.Question, answer *model.
 	}
 }
 
-func (s *EvaluatorService) mockFollowUp(question *model.Question) *model.Question {
+func (s *EvaluatorService) mockFollowUp(question *model.Question, nextKey string, baseKey string) *model.Question {
 	return &model.Question{
-		Key:       question.Key + ".1",
-		ParentKey: question.Key,
+		Key:       nextKey,
+		ParentKey: baseKey,
 		Type:      model.QuestionTypeEssay,
 		Prompt:    "Could you please elaborate with more specific details?",
 		Rubric:    "Looking for concrete examples.",
