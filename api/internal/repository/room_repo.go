@@ -26,21 +26,37 @@ func NewRoomRepo(client *mongo.Client) RoomRepo {
 }
 
 func (r *roomRepo) Create(ctx context.Context, room *model.Room) error {
-	// TODO: implement
+	// Insert the room into MongoDB
+	_, err := r.collection.InsertOne(ctx, room)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func (r *roomRepo) GetByCode(ctx context.Context, code string) (*model.Room, error) {
-	// TODO: implement
-	return nil, nil
+	// Find the room by code
+	var room model.Room
+	err := r.collection.FindOne(ctx, map[string]interface{}{"code": code}).Decode(&room)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil // Room not found
+		}
+		return nil, err
+	}
+
+	return &room, nil
 }
 
 func (r *roomRepo) Update(ctx context.Context, room *model.Room) error {
-	// TODO: implement
-	return nil
+	// Update the room by code
+	_, err := r.collection.ReplaceOne(ctx, map[string]interface{}{"code": room.Code}, room)
+	return err
 }
 
 func (r *roomRepo) Delete(ctx context.Context, code string) error {
-	// TODO: implement
-	return nil
+	// Delete the room by code
+	_, err := r.collection.DeleteOne(ctx, map[string]interface{}{"code": code})
+	return err
 }

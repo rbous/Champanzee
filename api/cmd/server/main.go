@@ -36,6 +36,7 @@ func main() {
 	playerRepo := repository.NewPlayerRepo(mongoClient)
 	roomRepo := repository.NewRoomRepo(mongoClient)
 	sessionRepo := repository.NewSessionRepo(mongoClient)
+	answerRepo := repository.NewAnswerRepository(mongoClient)
 	sessionCache := cache.NewSessionCache(redisClient)
 
 	// Initialize app
@@ -43,6 +44,7 @@ func main() {
 		PlayerRepo:   playerRepo,
 		RoomRepo:     roomRepo,
 		SessionRepo:  sessionRepo,
+		AnswerRepo:   answerRepo,
 		SessionCache: sessionCache,
 	}
 

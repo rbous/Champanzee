@@ -11,7 +11,7 @@ const (
 )
 
 type RoomSettings struct {
-	Mode               string `json:"mode" bson:"mode" // "realtime" or "async"`
+	Mode               string `json:"mode" bson:"mode"` // "realtime" or "async"
 	MaxPlayers         int    `json:"maxPlayers" bson:"maxPlayers"`
 	TimePerQuestionSec int    `json:"timePerQuestionSec" bson:"timePerQuestionSec"`
 	QuestionSetID      string `json:"questionSetId" bson:"questionSetId"`
