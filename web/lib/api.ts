@@ -1,4 +1,11 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/v1';
+const getApiBase = () => {
+    if (typeof window !== 'undefined' && (window as any).__RUNTIME_CONFIG__?.API_URL) {
+        return (window as any).__RUNTIME_CONFIG__.API_URL;
+    }
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/v1';
+};
+
+const API_BASE = getApiBase();
 
 // ============================================
 // Types

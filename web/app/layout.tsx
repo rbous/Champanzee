@@ -8,7 +8,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "2026 Champs | AI-Powered Surveys",
+  title: "Champanzee | AI-Powered Surveys",
   description: "Real-time AI-powered surveys with deep insights and analytics",
   icons: {
     icon: "/favicon.ico",
@@ -22,6 +22,17 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              window.__RUNTIME_CONFIG__ = {
+                API_URL: "${process.env.NEXT_PUBLIC_API_URL || ''}"
+              };
+            `,
+          }}
+        />
+      </head>
       <body className={`${inter.variable} antialiased`}>
         {children}
       </body>
