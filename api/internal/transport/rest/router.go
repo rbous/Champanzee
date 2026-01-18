@@ -7,6 +7,7 @@ import (
 	"2026champs/internal/transport/rest/middleware"
 	"2026champs/internal/transport/ws"
 	"net/http"
+	"os"
 
 	"github.com/gorilla/mux"
 )
@@ -91,9 +92,24 @@ func NewRouter(c *Container) http.Handler {
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		allowedOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
+		if allowedOrigins == "" {
+			allowedOrigins = "*"
+		}
+
+		allowedMethods := os.Getenv("CORS_ALLOWED_METHODS")
+		if allowedMethods == "" {
+			allowedMethods = "GET, POST, PUT, DELETE, OPTIONS"
+		}
+
+		allowedHeaders := os.Getenv("CORS_ALLOWED_HEADERS")
+		if allowedHeaders == "" {
+			allowedHeaders = "Content-Type, Authorization"
+		}
+
+		w.Header().Set("Access-Control-Allow-Origin", allowedOrigins)
+		w.Header().Set("Access-Control-Allow-Methods", allowedMethods)
+		w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
 
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
