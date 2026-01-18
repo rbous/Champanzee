@@ -56,6 +56,17 @@ func main() {
 			},
 			{
 				Key:       "Q2",
+				Type:      model.QuestionTypeMCQ,
+				Prompt:    "Which model did you purchase?",
+				PointsMax: 50,
+				Options: []string{
+					"Standard Model",
+					"Pro / Plus Model",
+					"Ultra / Max Model",
+				},
+			},
+			{
+				Key:       "Q3",
 				Type:      model.QuestionTypeEssay,
 				Prompt:    "Which feature do you find the most impressive? (Display, Battery, Camera, Speed, Design)",
 				Rubric:    "Look for specific mention of one of the listed features and why they like it.",
@@ -63,7 +74,7 @@ func main() {
 				Threshold: 0.6,
 			},
 			{
-				Key:       "Q3",
+				Key:       "Q4",
 				Type:      model.QuestionTypeDegree,
 				Prompt:    "How would you rate the phone’s performance during everyday tasks?",
 				PointsMax: 50,
@@ -71,7 +82,7 @@ func main() {
 				ScaleMax:  5,
 			},
 			{
-				Key:       "Q4",
+				Key:       "Q5",
 				Type:      model.QuestionTypeEssay,
 				Prompt:    "What was the main reason you chose this phone? (Price, Features, Brand, Design, Reviews)",
 				Rubric:    "Identify the primary motivation factor.",
@@ -79,24 +90,12 @@ func main() {
 				Threshold: 0.6,
 			},
 			{
-				Key:       "Q5",
+				Key:       "Q6",
 				Type:      model.QuestionTypeEssay,
 				Prompt:    "What is one thing you would improve or change about this smartphone?",
 				Rubric:    "Constructive criticism or specific feature requests.",
 				PointsMax: 100,
 				Threshold: 0.6,
-			},
-			{
-				Key:       "Q6",
-				Type:      model.QuestionTypeMCQ,
-				Prompt:    "Which of these areas should be our top priority for the next update?",
-				PointsMax: 100,
-				Options: []string{
-					"Battery Life & charging speed",
-					"Camera software & night mode",
-					"UI/UX responsiveness",
-					"New physical accessories",
-				},
 			},
 		},
 		CreatedAt: time.Now(),

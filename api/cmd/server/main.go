@@ -97,6 +97,7 @@ func main() {
 	roomRepo := repository.NewRoomRepo(db)
 	answerRepo := repository.NewAnswerRepo(db)
 	reportRepo := repository.NewReportRepo(db)
+	smRepo := repository.NewSMRepo(db)
 
 	// Initialize caches
 	roomCache := cache.NewRoomCache(rdb)
@@ -109,11 +110,16 @@ func main() {
 	authSvc := service.NewAuthService()
 	surveySvc := service.NewSurveyService(surveyRepo)
 	evaluator := service.NewEvaluatorService()
-	reportSvc := service.NewReportService(roomRepo, answerRepo, reportRepo, analyticsCache, leaderboard, evaluator)
+	insightSvc := service.NewInsightService(roomRepo, reportRepo, evaluator)
+	reportSvc := service.NewReportService(roomRepo, answerRepo, reportRepo, surveyRepo, analyticsCache, leaderboard, evaluator)
 	roomSvc := service.NewRoomService(roomRepo, surveyRepo, roomCache, authSvc, reportSvc)
 	playerSvc := service.NewPlayerService(surveyRepo, roomCache, playerCache, leaderboard, authSvc)
 	analyticsSvc := service.NewAnalyticsService(analyticsCache, evaluator)
 	answerSvc := service.NewAnswerService(answerRepo, surveyRepo, roomCache, playerCache, poolCache, playerSvc, evaluator)
+
+	// Initialize SurveyMonkey services
+	smClient := service.NewSMClient()
+	smSyncSvc := service.NewSMSyncService(smClient, smRepo)
 
 	// Inject analytics service into answer service for L2/L3/L4 updates
 	answerSvc.SetAnalyticsService(analyticsSvc)
@@ -125,14 +131,16 @@ func main() {
 
 	// Create router with container
 	container := &rest.Container{
-		AuthService:   authSvc,
-		SurveyService: surveySvc,
-		RoomService:   roomSvc,
-		PlayerService: playerSvc,
-		AnswerService: answerSvc,
-		ReportService: reportSvc,
-		Leaderboard:   leaderboard,
-		WSHub:         wsHub,
+		AuthService:    authSvc,
+		SurveyService:  surveySvc,
+		RoomService:    roomSvc,
+		PlayerService:  playerSvc,
+		AnswerService:  answerSvc,
+		ReportService:  reportSvc,
+		Leaderboard:    leaderboard,
+		WSHub:          wsHub,
+		SMSyncService:  smSyncSvc,
+		InsightService: insightSvc,
 	}
 
 	router := rest.NewRouter(container)

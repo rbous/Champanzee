@@ -12,12 +12,16 @@ import (
 
 // SurveyHandler handles survey endpoints
 type SurveyHandler struct {
-	surveySvc *service.SurveyService
+	surveySvc  *service.SurveyService
+	insightSvc *service.InsightService
 }
 
 // NewSurveyHandler creates a new survey handler
-func NewSurveyHandler(surveySvc *service.SurveyService) *SurveyHandler {
-	return &SurveyHandler{surveySvc: surveySvc}
+func NewSurveyHandler(surveySvc *service.SurveyService, insightSvc *service.InsightService) *SurveyHandler {
+	return &SurveyHandler{
+		surveySvc:  surveySvc,
+		insightSvc: insightSvc,
+	}
 }
 
 // CreateSurveyRequest is the request body for creating a survey
@@ -26,6 +30,34 @@ type CreateSurveyRequest struct {
 	Intent    string               `json:"intent"`
 	Settings  model.SurveySettings `json:"settings"`
 	Questions []model.BaseQuestion `json:"questions"`
+}
+
+// GenerateInsightsRequest is the request body for generating questions
+type GenerateInsightsRequest struct {
+	Intent string `json:"intent"`
+}
+
+// GenerateFromInsights handles POST /v1/surveys/generate-from-insights
+func (h *SurveyHandler) GenerateFromInsights(w http.ResponseWriter, r *http.Request) {
+	hostID := middleware.GetHostID(r.Context())
+	if hostID == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req GenerateInsightsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	questions, err := h.insightSvc.GenerateQuestionsFromInsights(r.Context(), hostID, req.Intent)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"questions": questions})
 }
 
 // Create handles POST /v1/surveys

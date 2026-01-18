@@ -18,8 +18,11 @@ type Survey struct {
 	Intent    string         `json:"intent" bson:"intent"` // Scope/purpose description
 	Settings  SurveySettings `json:"settings" bson:"settings"`
 	Questions []BaseQuestion `json:"questions" bson:"questions"`
-	CreatedAt time.Time      `json:"createdAt" bson:"createdAt"`
-	UpdatedAt time.Time      `json:"updatedAt" bson:"updatedAt"`
+	// Persistent SurveyMonkey Meta
+	SMSurveyID string    `json:"smSurveyId,omitempty" bson:"smSurveyId,omitempty"`
+	SMWebLink  string    `json:"smWebLink,omitempty" bson:"smWebLink,omitempty"`
+	CreatedAt  time.Time `json:"createdAt" bson:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt" bson:"updatedAt"`
 }
 
 // BaseQuestion is a question template in a survey

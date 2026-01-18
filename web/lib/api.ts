@@ -86,6 +86,9 @@ export interface SubmitAnswerResponse {
 
 export interface RoomSnapshot {
     roomCode: string;
+    surveyId: string;
+    smSurveyId?: string;
+    smWebLink?: string;
     endedAt: string;
     leaderboard: LeaderboardEntry[];
     completionRate: number;
@@ -115,6 +118,9 @@ export interface QuestionProfile {
     ratingHist?: number[];
     mean?: number;
     median?: number;
+    satCount?: number;
+    unsatCount?: number;
+    skipCount?: number;
 }
 
 export interface RoomSummary {
@@ -282,6 +288,15 @@ export const surveys = {
             headers: authHeaders('host'),
         });
     },
+
+    generateFromInsights: async (intent: string): Promise<Question[]> => {
+        const response = await request<{ questions: Question[] }>('/surveys/generate-from-insights', {
+            method: 'POST',
+            headers: authHeaders('host'),
+            body: JSON.stringify({ intent }),
+        });
+        return response.questions;
+    },
 };
 
 // ============================================
@@ -399,6 +414,53 @@ export const reports = {
 
     getAIReport: async (code: string): Promise<AIReport> => {
         return request<AIReport>(`/reports/${code}/ai`, {
+            headers: authHeaders('host'),
+        });
+    },
+};
+
+// ============================================
+// SurveyMonkey API
+// ============================================
+
+export interface SMSurveyResponse {
+    smSurveyId: string;
+    weblinkUrl: string;
+    title: string;
+}
+
+export interface SMSyncResult {
+    fetched: number;
+    insertedRaw: number;
+    parsedAnswers: number;
+    updatedFeatures: number;
+}
+
+export interface SMSummary {
+    totalResponses: number;
+    avgOverallSatisfaction: number;
+    topFeatureCounts: Array<{ feature: string; count: number }>;
+    latestSubmittedAt?: string;
+}
+
+export const surveymonkey = {
+    createFromInternal: async (surveyId: string, recommendedNextQuestions?: string[]): Promise<SMSurveyResponse> => {
+        return request<SMSurveyResponse>('/sm/surveys/from-internal', {
+            method: 'POST',
+            headers: authHeaders('host'),
+            body: JSON.stringify({ surveyId, recommendedNextQuestions }),
+        });
+    },
+
+    sync: async (smSurveyId: string): Promise<SMSyncResult> => {
+        return request<SMSyncResult>(`/sm/surveys/${smSurveyId}/sync`, {
+            method: 'POST',
+            headers: authHeaders('host'),
+        });
+    },
+
+    getSummary: async (smSurveyId: string): Promise<SMSummary> => {
+        return request<SMSummary>(`/sm/surveys/${smSurveyId}/summary`, {
             headers: authHeaders('host'),
         });
     },

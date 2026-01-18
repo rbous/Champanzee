@@ -161,19 +161,36 @@ func (c *playerCache) InsertInQueue(ctx context.Context, roomCode, playerID stri
 		return err
 	}
 
+	// Filter out keys that already exist in the queue
+	exists := make(map[string]bool)
+	for _, k := range queue {
+		exists[k] = true
+	}
+
+	uniqueNewKeys := make([]string, 0)
+	for _, nk := range newKeys {
+		if !exists[nk] {
+			uniqueNewKeys = append(uniqueNewKeys, nk)
+		}
+	}
+
+	if len(uniqueNewKeys) == 0 {
+		return nil // Nothing to insert
+	}
+
 	// Find position and insert
-	newQueue := make([]string, 0, len(queue)+len(newKeys))
+	newQueue := make([]string, 0, len(queue)+len(uniqueNewKeys))
 	inserted := false
 	for _, k := range queue {
 		newQueue = append(newQueue, k)
 		if k == afterKey && !inserted {
-			newQueue = append(newQueue, newKeys...)
+			newQueue = append(newQueue, uniqueNewKeys...)
 			inserted = true
 		}
 	}
 	if !inserted {
 		// Append at end if afterKey not found
-		newQueue = append(newQueue, newKeys...)
+		newQueue = append(newQueue, uniqueNewKeys...)
 	}
 
 	return c.SetQueue(ctx, roomCode, playerID, newQueue)

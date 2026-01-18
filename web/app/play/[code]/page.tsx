@@ -22,26 +22,43 @@ export default function PlayerGame() {
     const [lastAttemptId, setLastAttemptId] = useState<string | null>(null);
     const [result, setResult] = useState<SubmitAnswerResponse | null>(null);
 
-    const KahootColors = [
-        'bg-[#e21b3c] hover:bg-[#c61734]', // Red
-        'bg-[#1368ce] hover:bg-[#115ab3]', // Blue
-        'bg-[#d89e00] hover:bg-[#b08100]', // Yellow
-        'bg-[#26890c] hover:bg-[#1f6f0a]', // Green
+    const PartyThemes = [
+        { bg: 'bg-[#e21b3c]', hover: 'hover:bg-[#f32d4e]', icon: '🔺' },
+        { bg: 'bg-[#1368ce]', hover: 'hover:bg-[#257cf0]', icon: '🔷' },
+        { bg: 'bg-[#d89e00]', hover: 'hover:bg-[#ffbd0a]', icon: '🟡' },
+        { bg: 'bg-[#26890c]', hover: 'hover:bg-[#34a311]', icon: '🟩' },
     ];
 
     const MCQControl = ({ options, onSelect, disabled }: { options: string[], onSelect: (index: number) => void, disabled: boolean }) => {
         return (
-            <div className="grid grid-cols-2 gap-4 mt-8">
-                {options.map((opt, i) => (
-                    <button
-                        key={i}
-                        onClick={() => onSelect(i)}
-                        disabled={disabled}
-                        className={`${KahootColors[i % KahootColors.length]} text-white p-8 rounded-xl text-center font-bold text-xl shadow-lg transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed min-h-[120px] flex items-center justify-center`}
-                    >
-                        {opt}
-                    </button>
-                ))}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-8">
+                {options.map((opt, i) => {
+                    const theme = PartyThemes[i % PartyThemes.length];
+                    return (
+                        <button
+                            key={i}
+                            onClick={() => onSelect(i)}
+                            disabled={disabled}
+                            className={`
+                                ${theme.bg} ${theme.hover}
+                                text-white p-6 rounded-2xl text-left font-black text-xl
+                                border-b-8 border-r-8 border-black/30
+                                shadow-[4px_4px_0px_#000]
+                                active:border-b-2 active:border-r-2 active:shadow-none active:translate-y-1 active:translate-x-1
+                                transition-all duration-100
+                                disabled:opacity-50 disabled:cursor-not-allowed
+                                min-h-[100px] flex items-center gap-4
+                            `}
+                        >
+                            <span className="bg-white/20 w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0 shadow-inner">
+                                {theme.icon}
+                            </span>
+                            <span className="flex-1 drop-shadow-md">
+                                {opt}
+                            </span>
+                        </button>
+                    );
+                })}
             </div>
         );
     };
@@ -174,7 +191,14 @@ export default function PlayerGame() {
     const PromptDisplay = ({ text }: { text: string }) => {
         // Remove markdown-style asterisks and render as a single header
         const cleanText = text.replace(/\*/g, '');
-        return <h2 className="text-xl font-semibold mb-6 leading-tight">{cleanText}</h2>;
+        return (
+            <div className="relative">
+                <div className="absolute -left-4 -top-4 text-4xl opacity-20 -rotate-12 select-none">💬</div>
+                <h2 className="text-2xl sm:text-3xl font-black mb-8 leading-tight tracking-tight text-[var(--text-dark)] drop-shadow-sm">
+                    {cleanText}
+                </h2>
+            </div>
+        );
     };
 
     const handleSubmit = async () => {
@@ -378,9 +402,16 @@ export default function PlayerGame() {
 
                                 {/* Waiting UI */}
                                 {gameState === 'waiting_for_ai' && (
-                                    <div className="flex items-center justify-center py-8 text-[var(--color-purple)] animate-pulse">
-                                        <div className="spinner mr-3" />
-                                        <span className="font-bold text-xl">AI Brain is Thinking...</span>
+                                    <div className="flex flex-col items-center justify-center py-12 text-[var(--color-purple)]">
+                                        <div className="relative mb-6">
+                                            <div className="text-6xl animate-bounce">🧠</div>
+                                            <div className="absolute -right-2 -top-2 text-2xl animate-pulse">✨</div>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <div className="spinner" />
+                                            <span className="font-black text-2xl tracking-tighter italic">AI IS COOKING...</span>
+                                        </div>
+                                        <p className="text-sm font-bold mt-4 text-[var(--text-muted)] uppercase tracking-widest">Analyzing your brilliance</p>
                                     </div>
                                 )}
 

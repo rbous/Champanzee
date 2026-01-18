@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { reports, type RoomSnapshot, type AIReport } from '@/lib/api';
+import { reports, surveymonkey, type RoomSnapshot, type AIReport, type SMSurveyResponse, type SMSummary } from '@/lib/api';
 import GameBackground from '@/components/GameBackground';
 
-type Tab = 'snapshot' | 'ai';
+type Tab = 'snapshot' | 'ai' | 'surveymonkey';
 
 export default function ReportsPage() {
     const params = useParams();
@@ -18,9 +18,34 @@ export default function ReportsPage() {
     const [loadingAI, setLoadingAI] = useState(false);
     const [pollingAI, setPollingAI] = useState(false);
 
+    // SurveyMonkey state
+    const [smSurvey, setSmSurvey] = useState<SMSurveyResponse | null>(null);
+    const [creatingSM, setCreatingSM] = useState(false);
+    const [showSMModal, setShowSMModal] = useState(false);
+
+    const [syncing, setSyncing] = useState(false);
+    const [summary, setSummary] = useState<SMSummary | null>(null);
+    const [loadingSummary, setLoadingSummary] = useState(false);
+
     useEffect(() => {
         loadSnapshot();
     }, [code]);
+
+    useEffect(() => {
+        if (activeTab === 'surveymonkey' && snapshot?.smSurveyId) {
+            // Survey already exists! Load it into state
+            setSmSurvey({
+                smSurveyId: snapshot.smSurveyId,
+                title: 'SurveyMonkey Survey', // We could fetch title if needed
+                weblinkUrl: snapshot.smWebLink || '',
+            });
+
+            // Also load summary stats immediately if we have an ID
+            if (!summary) {
+                loadSummary(snapshot.smSurveyId);
+            }
+        }
+    }, [activeTab, snapshot]);
 
     const loadSnapshot = async () => {
         try {
@@ -30,6 +55,36 @@ export default function ReportsPage() {
             console.error('Failed to load snapshot:', err);
         } finally {
             setLoadingSnapshot(false);
+        }
+    };
+
+    // ... (keep existing triggerAIReport and pollAIReport)
+
+    const syncResponses = async () => {
+        if (!smSurvey?.smSurveyId) return;
+
+        setSyncing(true);
+        try {
+            await surveymonkey.sync(smSurvey.smSurveyId);
+            await loadSummary(smSurvey.smSurveyId);
+            alert('Synced successfully!');
+        } catch (err) {
+            console.error('Failed to sync:', err);
+            alert('Failed to sync responses');
+        } finally {
+            setSyncing(false);
+        }
+    };
+
+    const loadSummary = async (id: string) => {
+        setLoadingSummary(true);
+        try {
+            const data = await surveymonkey.getSummary(id);
+            setSummary(data);
+        } catch (err) {
+            console.error('Failed to load summary:', err);
+        } finally {
+            setLoadingSummary(false);
         }
     };
 
@@ -62,6 +117,46 @@ export default function ReportsPage() {
         }
     };
 
+    const createSMSurvey = async () => {
+        if (!snapshot?.surveyId) return;
+
+        // Double check if we already have it (persisted)
+        if (snapshot.smSurveyId) {
+            setSmSurvey({
+                smSurveyId: snapshot.smSurveyId,
+                title: 'Existing Survey',
+                weblinkUrl: snapshot.smWebLink || '',
+            });
+            return;
+        }
+
+        setCreatingSM(true);
+        try {
+            // Pass AI recommendations if available
+            const recommendations = aiReport?.recommendedNextQuestions;
+
+            const result = await surveymonkey.createFromInternal(snapshot.surveyId, recommendations);
+            setSmSurvey(result);
+            setShowSMModal(true);
+
+            if (result.smSurveyId === snapshot.surveyId) {
+                // If ID matches internal ID (legacy) or we want to update UI locally (TODO)
+            }
+        } catch (err) {
+            console.error('Failed to create SM survey:', err);
+            alert('Failed to create SurveyMonkey survey');
+        } finally {
+            setCreatingSM(false);
+        }
+    };
+
+    const copySMLink = () => {
+        if (smSurvey?.weblinkUrl) {
+            navigator.clipboard.writeText(smSurvey.weblinkUrl);
+            alert('Link copied to clipboard!');
+        }
+    };
+
     return (
         <div className="min-h-screen p-6 relative">
             <GameBackground />
@@ -85,10 +180,10 @@ export default function ReportsPage() {
                 </header>
 
                 {/* Tabs */}
-                <div className="flex gap-3 mb-8">
+                <div className="flex gap-2 mb-6">
                     <button
                         onClick={() => setActiveTab('snapshot')}
-                        className={`btn ${activeTab === 'snapshot' ? 'btn-primary' : 'btn-secondary'} hover:scale-105`}
+                        className={`btn ${activeTab === 'snapshot' ? 'btn-primary' : 'btn-secondary'}`}
                     >
                         📊 Snapshot
                     </button>
@@ -97,9 +192,15 @@ export default function ReportsPage() {
                             setActiveTab('ai');
                             if (!aiReport) triggerAIReport();
                         }}
-                        className={`btn ${activeTab === 'ai' ? 'btn-primary' : 'btn-secondary'} hover:scale-105`}
+                        className={`btn ${activeTab === 'ai' ? 'btn-primary' : 'btn-secondary'}`}
                     >
                         🤖 AI Insights
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('surveymonkey')}
+                        className={`btn ${activeTab === 'surveymonkey' ? 'btn-primary' : 'btn-secondary'}`}
+                    >
+                        📋 SurveyMonkey
                     </button>
                 </div>
 
@@ -401,7 +502,11 @@ export default function ReportsPage() {
                                                             <div className="text-lg p-3 rounded-lg bg-[var(--color-green)] text-white font-bold">{edit.suggested}</div>
                                                         </div>
                                                     </div>
-                                                    <div className="text-sm font-bold text-[var(--text-muted)]">
+                                                    <div>
+                                                        <div className="text-xs text-[var(--foreground-muted)] mb-1">Suggested</div>
+                                                        <div className="text-sm p-2 rounded bg-[var(--success-bg)]">{edit.suggested}</div>
+                                                    </div>
+                                                    <div className="text-xs text-[var(--foreground-muted)]">
                                                         Reason: {edit.reason}
                                                     </div>
                                                 </div>
@@ -411,25 +516,164 @@ export default function ReportsPage() {
                                 )}
                             </div>
                         ) : aiReport?.status === 'error' ? (
-                            <div className="card-party text-center py-16">
-                                <div className="text-6xl mb-4">❌</div>
-                                <p className="text-xl font-bold text-[var(--color-pink)] mb-6">Failed to generate AI report</p>
-                                <button onClick={triggerAIReport} className="btn btn-primary hover:scale-105">
-                                    🔄 Retry
+                            <div className="card text-center py-12">
+                                <div className="text-4xl mb-4">❌</div>
+                                <p className="text-[var(--error)]">Failed to generate AI report</p>
+                                <button onClick={triggerAIReport} className="btn btn-primary mt-4">
+                                    Retry
                                 </button>
                             </div>
                         ) : (
-                            <div className="card-party text-center py-16">
-                                <div className="text-6xl mb-4 animate-bounce-slow">🤖</div>
-                                <h3 className="text-2xl font-black mb-3">AI Insights</h3>
-                                <p className="text-lg font-bold text-[var(--text-muted)] mb-6">
+                            <div className="card text-center py-12">
+                                <div className="text-4xl mb-4">🤖</div>
+                                <h3 className="text-lg font-semibold mb-2">AI Insights</h3>
+                                <p className="text-[var(--foreground-muted)] mb-4">
                                     Generate deep insights and recommendations
                                 </p>
-                                <button onClick={triggerAIReport} className="btn btn-primary text-xl py-4 px-8 hover:scale-105">
-                                    ✨ Generate Report
+                                <button onClick={triggerAIReport} className="btn btn-primary">
+                                    Generate Report
                                 </button>
                             </div>
                         )}
+                    </div>
+                )}
+
+                {/* SurveyMonkey Tab */}
+                {activeTab === 'surveymonkey' && (
+                    <div className="animate-fade-in">
+                        <div className="card-party">
+                            <div className="text-center mb-8">
+                                <div className="text-5xl mb-4">�</div>
+                                <h2 className="text-2xl font-black mb-2">SurveyMonkey Integration</h2>
+                                <p className="text-[var(--text-muted)] font-bold max-w-2xl mx-auto">
+                                    Extend your reach! Create a follow-up survey to collect asynchronous responses,
+                                    powered by AI-generated questions.
+                                </p>
+                            </div>
+
+                            {smSurvey ? (
+                                <div className="max-w-xl mx-auto space-y-6">
+                                    <div className="p-6 rounded-xl bg-[var(--color-green)] text-white border-2 border-black transform rotate-1">
+                                        <div className="text-lg font-black mb-2">✅ Survey Created!</div>
+                                        <div className="text-xl font-bold mb-4">{smSurvey.title}</div>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={smSurvey.weblinkUrl}
+                                                readOnly
+                                                className="input flex-1 font-mono text-sm text-black"
+                                            />
+                                            <button onClick={copySMLink} className="btn bg-white text-black hover:bg-gray-100">
+                                                📋 Copy
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Sync & Analytics Section */}
+                                    <div className="border-t-2 border-[var(--border-color)] pt-6">
+                                        <h3 className="text-xl font-black mb-4 text-center">🔄 Sync & Analytics</h3>
+
+                                        <div className="flex justify-center gap-4 mb-6">
+                                            <button
+                                                onClick={syncResponses}
+                                                disabled={syncing}
+                                                className="btn btn-primary"
+                                            >
+                                                {syncing ? (
+                                                    <>
+                                                        <div className="spinner" style={{ width: 16, height: 16 }} />
+                                                        Syncing...
+                                                    </>
+                                                ) : (
+                                                    '🔄 Sync Now'
+                                                )}
+                                            </button>
+                                        </div>
+
+                                        {summary && (
+                                            <div className="text-center text-sm font-bold text-[var(--text-muted)] mb-4">
+                                                Last synced: {new Date().toLocaleTimeString()}
+                                            </div>
+                                        )}
+
+                                        {loadingSummary ? (
+                                            <div className="text-center py-4 font-bold text-[var(--text-muted)]">Loading stats...</div>
+                                        ) : summary ? (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                <div className="p-6 rounded-xl bg-[var(--bg-cream)] border-2 border-[var(--border-color)] text-center">
+                                                    <div className="text-4xl font-black text-[var(--color-blue)] mb-2">{summary.totalResponses}</div>
+                                                    <div className="text-sm font-bold text-[var(--text-muted)]">Total Responses</div>
+                                                </div>
+                                                {summary.avgOverallSatisfaction > 0 && (
+                                                    <div className="p-6 rounded-xl bg-[var(--bg-cream)] border-2 border-[var(--border-color)] text-center">
+                                                        <div className="text-4xl font-black text-[var(--color-purple)] mb-2">
+                                                            {summary.avgOverallSatisfaction.toFixed(1)}/5
+                                                        </div>
+                                                        <div className="text-sm font-bold text-[var(--text-muted)]">Avg Satisfaction</div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="text-center p-6 bg-[var(--bg-cream)] rounded-xl border-dashed border-2 border-[var(--border-color)]">
+                                                <p className="font-bold text-[var(--text-muted)]">
+                                                    Sync to see latest response counts and stats.
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-center py-8">
+                                    <button
+                                        onClick={createSMSurvey}
+                                        disabled={creatingSM}
+                                        className="btn btn-primary text-xl px-8 py-4 animate-bounce-custom"
+                                    >
+                                        {creatingSM ? (
+                                            <>
+                                                <div className="spinner" style={{ width: 20, height: 20 }} />
+                                                Creating Survey...
+                                            </>
+                                        ) : (
+                                            '🚀 Create Smart Survey'
+                                        )}
+                                    </button>
+                                    <p className="mt-4 text-sm font-bold text-[var(--text-muted)]">
+                                        Includes {aiReport?.recommendedNextQuestions ? `${aiReport.recommendedNextQuestions.length} AI-suggested` : 'AI-suggested'} follow-up questions
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* SM Modal */}
+                {showSMModal && smSurvey && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowSMModal(false)}>
+                        <div className="card-party max-w-lg w-full m-4 border-4 border-black box-shadow-xl" onClick={(e) => e.stopPropagation()}>
+                            <div className="text-center mb-6">
+                                <div className="text-5xl mb-2">🎉</div>
+                                <h3 className="text-2xl font-black">Survey Created!</h3>
+                                <p className="text-[var(--text-muted)] font-bold mt-2">
+                                    Ready to collect responses.
+                                </p>
+                            </div>
+
+                            <div className="flex gap-2 mb-6">
+                                <input
+                                    type="text"
+                                    value={smSurvey.weblinkUrl}
+                                    readOnly
+                                    className="input flex-1 font-mono text-sm border-2 border-black"
+                                />
+                                <button onClick={copySMLink} className="btn btn-primary">
+                                    📋 Copy
+                                </button>
+                            </div>
+                            <button onClick={() => setShowSMModal(false)} className="btn btn-secondary w-full">
+                                Close
+                            </button>
+                        </div>
                     </div>
                 )}
             </div>

@@ -126,9 +126,11 @@ type FrictionPoint struct {
 
 // RoomSnapshot is the instant dashboard data (frozen on room end)
 type RoomSnapshot struct {
-	RoomCode string    `json:"roomCode" bson:"roomCode"`
-	SurveyID string    `json:"surveyId" bson:"surveyId"`
-	EndedAt  time.Time `json:"endedAt" bson:"endedAt"`
+	RoomCode   string    `json:"roomCode" bson:"roomCode"`
+	SurveyID   string    `json:"surveyId" bson:"surveyId"`
+	SMSurveyID string    `json:"smSurveyId,omitempty" bson:"smSurveyId,omitempty"`
+	SMWebLink  string    `json:"smWebLink,omitempty" bson:"smWebLink,omitempty"`
+	EndedAt    time.Time `json:"endedAt" bson:"endedAt"`
 
 	// Final leaderboard
 	Leaderboard []LeaderboardEntry `json:"leaderboard" bson:"leaderboard"`

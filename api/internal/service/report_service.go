@@ -13,6 +13,7 @@ type ReportService struct {
 	roomRepo       repository.RoomRepo
 	answerRepo     repository.AnswerRepo
 	reportRepo     repository.ReportRepo
+	surveyRepo     repository.SurveyRepo
 	analyticsCache cache.AnalyticsCache
 	leaderboard    cache.LeaderboardCache
 	evaluator      *EvaluatorService
@@ -23,6 +24,7 @@ func NewReportService(
 	roomRepo repository.RoomRepo,
 	answerRepo repository.AnswerRepo,
 	reportRepo repository.ReportRepo,
+	surveyRepo repository.SurveyRepo,
 	analyticsCache cache.AnalyticsCache,
 	leaderboard cache.LeaderboardCache,
 	evaluator *EvaluatorService,
@@ -31,6 +33,7 @@ func NewReportService(
 		roomRepo:       roomRepo,
 		answerRepo:     answerRepo,
 		reportRepo:     reportRepo,
+		surveyRepo:     surveyRepo,
 		analyticsCache: analyticsCache,
 		leaderboard:    leaderboard,
 		evaluator:      evaluator,
@@ -108,7 +111,24 @@ func (s *ReportService) CreateSnapshot(ctx context.Context, roomCode string, que
 
 // GetSnapshot retrieves the instant dashboard snapshot
 func (s *ReportService) GetSnapshot(ctx context.Context, roomCode string) (*model.RoomSnapshot, error) {
-	return s.reportRepo.GetSnapshot(ctx, roomCode)
+	snapshot, err := s.reportRepo.GetSnapshot(ctx, roomCode)
+	if err != nil {
+		return nil, err
+	}
+	if snapshot == nil {
+		return nil, nil
+	}
+
+	// Patch with latest Survey details (SM Survey ID link)
+	if snapshot.SurveyID != "" {
+		survey, err := s.surveyRepo.GetByID(ctx, snapshot.SurveyID)
+		if err == nil && survey != nil {
+			snapshot.SMSurveyID = survey.SMSurveyID
+			snapshot.SMWebLink = survey.SMWebLink
+		}
+	}
+
+	return snapshot, nil
 }
 
 // TriggerAIReport starts async AI report generation

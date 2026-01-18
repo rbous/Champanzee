@@ -218,11 +218,13 @@ func (s *AnswerService) SubmitAnswer(ctx context.Context, roomCode, playerID str
 			response.PointsEarned = points
 			response.EvalSummary = answer.EvalSummary
 
-			// Try to generate follow-up - AI will decide if needed based on gap analysis
-			followUp, err := s.getOrGenerateFollowUp(asyncCtx, rCode, pID, q, evalResult, answer.TextAnswer)
-			if err == nil && followUp != nil {
-				if err := s.playerSvc.InsertFollowUp(asyncCtx, rCode, pID, followUp); err == nil {
-					response.FollowUp = followUp
+			// Try to generate follow-up - only if the answer was satisfactory
+			if answer.Resolution == model.ResolutionSat {
+				followUp, err := s.getOrGenerateFollowUp(asyncCtx, rCode, pID, q, evalResult, answer.TextAnswer)
+				if err == nil && followUp != nil {
+					if err := s.playerSvc.InsertFollowUp(asyncCtx, rCode, pID, followUp); err == nil {
+						response.FollowUp = followUp
+					}
 				}
 			}
 
@@ -359,13 +361,25 @@ func (s *AnswerService) getOrGenerateFollowUp(ctx context.Context, roomCode, pla
 	if idx := strings.Index(question.Key, "."); idx > 0 {
 		base = question.Key[:idx]
 	}
-	allAnswers, err := s.answerRepo.GetByRoomCode(ctx, roomCode)
+
+	// Get player's answer history to find max follow-up number
+	playerAnswers, err := s.answerRepo.GetByRoomAndPlayer(ctx, roomCode, playerID)
 	if err != nil {
 		return nil, err
 	}
+
+	// Also check current queue to avoid assigning a key that's already waiting
+	queue, err := s.playerCache.GetQueue(ctx, roomCode, playerID)
+	if err != nil {
+		return nil, err
+	}
+
 	maxNum := 0
-	for _, ans := range allAnswers {
-		if strings.HasPrefix(ans.QuestionKey, base+".") {
+	prefix := base + "."
+
+	// Check history
+	for _, ans := range playerAnswers {
+		if strings.HasPrefix(ans.QuestionKey, prefix) {
 			parts := strings.Split(ans.QuestionKey, ".")
 			if len(parts) >= 2 {
 				if num, err := strconv.Atoi(parts[len(parts)-1]); err == nil && num > maxNum {
@@ -374,6 +388,19 @@ func (s *AnswerService) getOrGenerateFollowUp(ctx context.Context, roomCode, pla
 			}
 		}
 	}
+
+	// Check queue
+	for _, qk := range queue {
+		if strings.HasPrefix(qk, prefix) {
+			parts := strings.Split(qk, ".")
+			if len(parts) >= 2 {
+				if num, err := strconv.Atoi(parts[len(parts)-1]); err == nil && num > maxNum {
+					maxNum = num
+				}
+			}
+		}
+	}
+
 	nextNum := maxNum + 1
 	nextKey := fmt.Sprintf("%s.%d", base, nextNum)
 
@@ -421,17 +448,13 @@ func (s *AnswerService) getOrGenerateFollowUp(ctx context.Context, roomCode, pla
 	// Fetch conversation history
 	// We want all previous answers from this player in this room to give context
 	// In a real implementation, we might filter to just the current question thread (parent + siblings)
-	allAnswers, err = s.answerRepo.GetByRoomAndPlayer(ctx, roomCode, playerID)
 	history := []model.Answer{}
-	if err == nil {
-		// Simple filter: include answers related to the same parent key or the question itself
-		// Ideally we traverse the tree, but for now, let's just dump the last few answers as context
-		for _, ans := range allAnswers {
-			// Include if it's the base question or a related follow-up
-			// Heuristic: starts with the same prefix? Or just all recent answers?
-			// Let's pass all recent answers for rich context
-			history = append(history, *ans)
-		}
+	// We already fetched player entries as 'playerAnswers' earlier in this function
+	for _, ans := range playerAnswers {
+		// Include if it's the base question or a related follow-up
+		// Heuristic: starts with the same prefix? Or just all recent answers?
+		// Let's pass all recent answers for rich context
+		history = append(history, *ans)
 	}
 
 	// Fetch Survey Intent

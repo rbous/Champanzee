@@ -14,14 +14,16 @@ import (
 
 // Container holds all dependencies for the router
 type Container struct {
-	AuthService   *service.AuthService
-	SurveyService *service.SurveyService
-	RoomService   *service.RoomService
-	PlayerService *service.PlayerService
-	AnswerService *service.AnswerService
-	ReportService *service.ReportService
-	Leaderboard   cache.LeaderboardCache
-	WSHub         *ws.Hub
+	AuthService    *service.AuthService
+	SurveyService  *service.SurveyService
+	RoomService    *service.RoomService
+	PlayerService  *service.PlayerService
+	AnswerService  *service.AnswerService
+	ReportService  *service.ReportService
+	Leaderboard    cache.LeaderboardCache
+	WSHub          *ws.Hub
+	SMSyncService  *service.SMSyncService
+	InsightService *service.InsightService
 }
 
 // NewRouter creates the API router with all endpoints
@@ -30,7 +32,7 @@ func NewRouter(c *Container) http.Handler {
 
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(c.AuthService)
-	surveyHandler := handler.NewSurveyHandler(c.SurveyService)
+	surveyHandler := handler.NewSurveyHandler(c.SurveyService, c.InsightService)
 	roomHandler := handler.NewRoomHandler(c.RoomService, c.PlayerService, c.Leaderboard)
 	playerHandler := handler.NewPlayerHandler(c.PlayerService, c.AnswerService)
 	reportHandler := handler.NewReportHandler(c.ReportService)
@@ -64,6 +66,7 @@ func NewRouter(c *Container) http.Handler {
 	hostRoutes := v1.NewRoute().Subrouter()
 	hostRoutes.Use(authMW.RequireHost)
 
+	hostRoutes.HandleFunc("/surveys/generate-from-insights", surveyHandler.GenerateFromInsights).Methods("POST", "OPTIONS")
 	hostRoutes.HandleFunc("/surveys", surveyHandler.Create).Methods("POST", "OPTIONS")
 	hostRoutes.HandleFunc("/surveys", surveyHandler.List).Methods("GET", "OPTIONS")
 	hostRoutes.HandleFunc("/surveys/{surveyId}", surveyHandler.Get).Methods("GET", "OPTIONS")
@@ -78,6 +81,16 @@ func NewRouter(c *Container) http.Handler {
 	hostRoutes.HandleFunc("/reports/{roomCode}/snapshot", reportHandler.GetSnapshot).Methods("GET", "OPTIONS")
 	hostRoutes.HandleFunc("/reports/{roomCode}/ai", reportHandler.GetAIReport).Methods("GET", "OPTIONS")
 	hostRoutes.HandleFunc("/reports/{roomCode}/ai", reportHandler.GenerateAIReport).Methods("POST", "OPTIONS")
+
+	// SurveyMonkey routes (host only)
+	if c.SMSyncService != nil {
+		smHandler := handler.NewSMHandler(c.SMSyncService, c.SurveyService)
+		hostRoutes.HandleFunc("/sm/surveys/from-internal", smHandler.CreateSurveyFromInternal).Methods("POST", "OPTIONS")
+		hostRoutes.HandleFunc("/sm/surveys/{surveyId}/collectors/weblink", smHandler.CreateCollector).Methods("POST", "OPTIONS")
+		hostRoutes.HandleFunc("/sm/surveys/{surveyId}/sync", smHandler.Sync).Methods("POST", "OPTIONS")
+		hostRoutes.HandleFunc("/sm/surveys/{surveyId}/summary", smHandler.Summary).Methods("GET", "OPTIONS")
+		hostRoutes.HandleFunc("/sm/surveys/{surveyId}/distribution/{metric}", smHandler.Distribution).Methods("GET", "OPTIONS")
+	}
 
 	// Player routes (require player auth)
 	playerRoutes := v1.NewRoute().Subrouter()

@@ -253,7 +253,7 @@ func (s *EvaluatorService) buildEvaluationPrompt(question *model.Question, answe
   "qualityScore": 0.0 to 1.0,
   "signals": {
     "themes": ["theme1", "theme2"],
-    "missing": ["example", "context", "specifics"],
+    "missing": ["list of truly missing required data based on rubric"],
     "specificity": 0.0 to 1.0,
     "clarity": 0.0 to 1.0,
     "sentiment": -1.0 to 1.0,
@@ -271,19 +271,15 @@ Rubric: %s
 Threshold for SAT: %.2f
 Player's Answer: %s
 
-Evaluate the answer. If qualityScore >= threshold, resolution is SAT. Otherwise UNSAT.
-Extract themes, identify what's missing, and suggest a follow-up mode.
-
-IMPORTANT: Scoring Criteria
-- **Quality over Quantity**: "Essays" do NOT need to be long. A few (2-3) sentences should get a 1.0 (100%) qualityScore IF they are detailed, pertinent, and answer the prompt well.
-- **No Yapping**: Penalize vague, repetitive, or filler content ("yappering").
-- **Leniency**: Start at 0.5 for any coherent answer that attempts to address the question. Only mark UNSAT for completely irrelevant answers, gibberish, or extreme brevity (1-2 words with no substance). Good-faith attempts should pass.
-- **Grading Scale**: 
-  - 0.9-1.0: Excellent, detailed, insightful - going above and beyond (e.g., explaining why, providing examples, depth)
-  - 0.7-0.9: Good, solid answer that addresses the question with some elaboration
-  - 0.5-0.7: Okay, basic but acceptable - directly answering the question (e.g., what feature do you prefer)
-  - 0.3-0.5: Poor, minimal effort but not completely worthless
-  - 0.0-0.3: Irrelevant, gibberish, or no effort`,
+Evaluate the answer.
+- Narrow vs. Broad: If they named a narrow technical feature (e.g. "OLED", "4K"), do NOT mark "specifics" as missing. If they gave a broad/subjective reason (e.g. "price", "it's fast", "looks good"), you MAY mark "specifics" as missing to trigger one targeted drill-down.
+- Leniency on Minimal Answers: If an answer is very short (3-8 words) but addresses the question, mark it as SAT but give it a low quality score (e.g. 0.3-0.5).
+- Grading Scale: 
+  - 0.9-1.0: Excellent, detailed, insights provided.
+  - 0.6-0.9: Good, solid answer with a clear data point.
+  - 0.3-0.6: Mid / Broad - technically answers but lacks depth (e.g. "the price is good").
+  - 0.1-0.3: Minimalist / Horrible effort (e.g. "it is food").
+  - 0.0: Irrelevant or gibberish.`,
 		question.Prompt, question.Rubric, question.Threshold, answer.TextAnswer)
 }
 
@@ -346,49 +342,42 @@ func (s *EvaluatorService) buildFollowUpPrompt(question *model.Question, player 
 		historyStr = sb.String()
 	}
 
-	return fmt.Sprintf(`You are an expert qualitative researcher and charismatic game host. Your goal is to get the best possible data for the survey's core intent by asking one perfect follow-up question.
+	return fmt.Sprintf(`You are an efficient and friendly data collector. Your goal is to gather high-value data without badgering the user.
 
 SURVEY CONTEXT:
-Intent/Goal: "%s"
+Intent: "%s"
 Current Question: "%s"
 
 PLAYER DATA:
-Player Answer: "%s"
+Answer: "%s"
 Initial Analysis: %s (Missing: %s)
 %s
 
-SOCIAL CONTEXT (The Vibe):
-%s
-
 TASK:
-1. GAP ANALYSIS: Compare the Player Answer to the Survey Intent. What specific detail is missing that would make this answer truly valuable to the host?
-2. DECISION: Should you ask a follow-up?
-   - YES if there's a significant gap that would add substantial value by getting more specific details that are missing and important for the survey intent
-   - NO if the answer is already complete, provides good data, or if asking more would be redundant, off-topic, or not add meaningful insights
-3. If YES, generate ONE follow-up question that:
-   - Digs into the specific gap identified.
-   - Acknowledges what they already said (charismatic).
-   - If they are echoing the crowd, ask for a personal nuance ("You mentioned X like everyone else, but how does that affect YOU specifically?").
-   - If they are unique, ask them to elaborate on their unique angle.
-   - STAYS IN CHARACTER: Friendly, curious, professional but casual.
-   - KEEP IT CONCISE: Make the question engaging but not extremely long - aim for 1-2 sentences max.
-4. If NO, return an empty followUps array.
+1. DECIDE: Should you ask a follow-up?
+   - YES if the answer is broad/mid-tier (e.g. "price", "quality", "design") and one targeted drill-down would add high value.
+   - NO if they've already provided a narrow data point (e.g. "OLED", "under $500", "brushed aluminum").
+   - NO if they've already provided a "Why" in their text.
+   - DO NOT ASK "Why?". Instead, ask for a specific aspect or a comparison.
+2. If (and ONLY if) you must ask a follow-up:
+   - Acknowledge their response with energy (e.g. "Price is always a huge factor!", "Speed is king!").
+   - Ask ONE short question to get a concrete detail (e.g. "What price range are you aiming for?" or "Which part of the design really caught your eye?").
+   - KEEP IT CONCISE: 1-2 short sentences max.
 
 Return ONLY valid JSON:
 {
   "followUps": [{
     "type": "ESSAY" or "MCQ",
-    "prompt": "Your question text here",
-    "options": ["Option A", "Option B", "Option C", "Option D"], // Required if type is MCQ, omit for ESSAY
-    "rubric": "Grade based on whether they answer the specific gap you asked about",
+    "prompt": "Targeted, energetic question here",
+    "options": ["A", "B"], // if MCQ
+    "rubric": "Short rubric",
     "pointsMax": %d,
     "threshold": %.2f,
-    "reason_in_scope": "I asked this because [explanation of the gap analysis]"
-  }]  // Empty array [] if no follow-up needed
+    "reason_in_scope": "Brief reason"
+  }] // Return [] if the answer is already sufficiently narrow.
 }`,
 		surveyIntent, question.Prompt,
 		answerText, evalResult.Resolution, missingStr, historyStr,
-		peerCtx,
 		question.PointsMax/2, question.Threshold)
 }
 
@@ -526,5 +515,88 @@ func (s *EvaluatorService) mockReport(snapshot *model.RoomSnapshot) *model.AIRep
 			"Mock report - enable Gemini for real insights",
 		},
 		ReadyAt: &now,
+	}
+}
+
+// CondenseProbes takes a list of raw follow-up suggestions and selects the best ones for a new survey
+func (s *EvaluatorService) CondenseProbes(ctx context.Context, probes []string, intent string) ([]model.BaseQuestion, error) {
+	if !s.config.IsEnabled() {
+		return s.mockCondenseProbes(), nil
+	}
+
+	prompt := s.buildCondenseProbesPrompt(probes, intent)
+	response, err := s.callGemini(ctx, s.config.Models.PoolGen, prompt) // Use PoolGen model or similar
+	if err != nil {
+		return s.mockCondenseProbes(), nil
+	}
+
+	var result struct {
+		Questions []model.BaseQuestion `json:"questions"`
+	}
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		fmt.Printf("[CondenseProbes] JSON Error: %v\n", err)
+		return s.mockCondenseProbes(), nil
+	}
+
+	return result.Questions, nil
+}
+
+func (s *EvaluatorService) buildCondenseProbesPrompt(probes []string, intent string) string {
+	probesStr := ""
+	if len(probes) > 20 {
+		probes = probes[:20] // Limit context window
+	}
+	probesStr = strings.Join(probes, "\n- ")
+
+	return fmt.Sprintf(`You are an expert survey designer.
+I have a list of "follow-up questions" and "probes" that were generated by AI during previous sessions of this survey (or similar ones).
+I am creating a NEW version of the survey.
+My Intent for this new survey is: "%s"
+
+Here are the candidate follow-up questions from past sessions:
+- %s
+
+Task:
+1. Analyze the candidates.
+2. Select the top 3-5 most high-value questions that would be good PERMANENT additions to the main survey.
+3. Reformulate them if necessary to be more general and high-quality (standardized).
+4. Return them as a JSON array of question objects.
+
+Return ONLY valid JSON:
+{
+  "questions": [
+    {
+      "key": "Q_Auto1",
+      "type": "ESSAY" or "MCQ" or "DEGREE",
+      "prompt": "...",
+      "rubric": "...", // if ESSAY
+      "pointsMax": 50,
+      "threshold": 0.6,
+      "scaleMin": 1, // if DEGREE
+      "scaleMax": 5, // if DEGREE
+      "options": ["A", "B"] // if MCQ
+    }
+  ]
+}`, intent, probesStr)
+}
+
+func (s *EvaluatorService) mockCondenseProbes() []model.BaseQuestion {
+	return []model.BaseQuestion{
+		{
+			Key:       "Q_Auto1",
+			Type:      model.QuestionTypeEssay,
+			Prompt:    "What specific improvements would you suggest based on your previous experience?",
+			Rubric:    "Look for actionable suggestions.",
+			PointsMax: 50,
+			Threshold: 0.6,
+		},
+		{
+			Key:       "Q_Auto2",
+			Type:      model.QuestionTypeDegree,
+			Prompt:    "How relevant were the topics discussed today to your personal goals?",
+			ScaleMin:  1,
+			ScaleMax:  5,
+			PointsMax: 50,
+		},
 	}
 }

@@ -17,6 +17,7 @@ type RoomRepo interface {
 	Update(ctx context.Context, room *model.Room) error
 	Delete(ctx context.Context, code string) error
 	GetBySurveyID(ctx context.Context, surveyID string) ([]*model.Room, error)
+	GetByHostID(ctx context.Context, hostID string) ([]*model.Room, error)
 }
 
 type roomRepo struct {
@@ -65,6 +66,20 @@ func (r *roomRepo) GetBySurveyID(ctx context.Context, surveyID string) ([]*model
 	}
 
 	cursor, err := r.collection.Find(ctx, bson.M{"surveyId": oid})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	rooms := []*model.Room{}
+	if err := cursor.All(ctx, &rooms); err != nil {
+		return nil, err
+	}
+	return rooms, nil
+}
+
+func (r *roomRepo) GetByHostID(ctx context.Context, hostID string) ([]*model.Room, error) {
+	cursor, err := r.collection.Find(ctx, bson.M{"hostId": hostID})
 	if err != nil {
 		return nil, err
 	}

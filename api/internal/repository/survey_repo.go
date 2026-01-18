@@ -89,12 +89,14 @@ func (r *surveyRepo) Update(ctx context.Context, survey *model.Survey) error {
 	// Create update document excluding the ID
 	updateDoc := bson.M{
 		"$set": bson.M{
-			"hostId":    survey.HostID,
-			"title":     survey.Title,
-			"intent":    survey.Intent,
-			"settings":  survey.Settings,
-			"questions": survey.Questions,
-			"updatedAt": survey.UpdatedAt,
+			"hostId":     survey.HostID,
+			"title":      survey.Title,
+			"intent":     survey.Intent,
+			"settings":   survey.Settings,
+			"questions":  survey.Questions,
+			"smSurveyId": survey.SMSurveyID,
+			"smWebLink":  survey.SMWebLink,
+			"updatedAt":  survey.UpdatedAt,
 		},
 	}
 

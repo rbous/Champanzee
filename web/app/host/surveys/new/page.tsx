@@ -37,6 +37,20 @@ export default function NewSurvey() {
                     options: [],
                 },
                 {
+                    type: 'MCQ',
+                    prompt: "Which model did you purchase?",
+                    rubric: "",
+                    pointsMax: 50,
+                    threshold: 0.5,
+                    scaleMin: 1,
+                    scaleMax: 5,
+                    options: [
+                        "Standard Model",
+                        "Pro / Plus Model",
+                        "Ultra / Max Model"
+                    ],
+                },
+                {
                     type: 'ESSAY',
                     prompt: "Which feature do you find the most impressive? (Display, Battery, Camera, Speed, Design)",
                     rubric: "Look for specific mention of one of the listed features and why they like it.",
@@ -125,6 +139,40 @@ export default function NewSurvey() {
         }
     };
 
+    const generateFromInsights = async () => {
+        if (!formData.intent) {
+            setError("Please enter a specific Intent above so AI can find relevant past questions.");
+            return;
+        }
+        setLoading(true);
+        setError('');
+
+        try {
+            const newQuestions = await surveys.generateFromInsights(formData.intent);
+            if (newQuestions.length === 0) {
+                setError("No relevant past insights found for this intent.");
+            } else {
+                setFormData(prev => ({
+                    ...prev,
+                    questions: [...prev.questions, ...newQuestions.map(q => ({
+                        type: q.type,
+                        prompt: q.prompt,
+                        rubric: q.rubric || '',
+                        pointsMax: q.pointsMax || 50,
+                        threshold: q.threshold || 0.6,
+                        scaleMin: q.scaleMin || 1,
+                        scaleMax: q.scaleMax || 5,
+                        options: q.options || [],
+                    } as QuestionInput))]
+                }));
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to generate from insights');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <div className="min-h-screen p-6 relative">
             <GameBackground />
@@ -145,12 +193,21 @@ export default function NewSurvey() {
                             </p>
                         </div>
                     </div>
-                    <button
-                        onClick={loadTemplate}
-                        className="btn btn-yellow hover:scale-105 hover:rotate-2"
-                    >
-                        📱 Load Template
-                    </button>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={generateFromInsights}
+                            className={`btn bg-purple-600 text-white hover:bg-purple-700 hover:scale-105 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            disabled={loading}
+                        >
+                            ✨ Generate from Insights
+                        </button>
+                        <button
+                            onClick={loadTemplate}
+                            className="btn btn-yellow hover:scale-105 hover:rotate-2"
+                        >
+                            📱 Load Template
+                        </button>
+                    </div>
                 </div>
 
                 <SurveyForm
