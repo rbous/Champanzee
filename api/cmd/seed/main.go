@@ -86,6 +86,18 @@ func main() {
 				PointsMax: 100,
 				Threshold: 0.6,
 			},
+			{
+				Key:       "Q6",
+				Type:      model.QuestionTypeMCQ,
+				Prompt:    "Which of these areas should be our top priority for the next update?",
+				PointsMax: 100,
+				Options: []string{
+					"Battery Life & charging speed",
+					"Camera software & night mode",
+					"UI/UX responsiveness",
+					"New physical accessories",
+				},
+			},
 		},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),

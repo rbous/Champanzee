@@ -57,6 +57,9 @@ type QuestionProfile struct {
 	RatingSum   int         `json:"ratingSum" bson:"ratingSum"`
 	RatingCount int         `json:"ratingCount" bson:"ratingCount"`
 
+	// Choice stats (for MCQ type)
+	OptionHist map[int]int `json:"optionHist" bson:"optionHist"` // index -> count
+
 	// Mini-clusters (optional, for advanced analytics)
 	Clusters []QuestionCluster `json:"clusters,omitempty" bson:"clusters,omitempty"`
 

@@ -113,7 +113,7 @@ func main() {
 	roomSvc := service.NewRoomService(roomRepo, surveyRepo, roomCache, authSvc, reportSvc)
 	playerSvc := service.NewPlayerService(surveyRepo, roomCache, playerCache, leaderboard, authSvc)
 	analyticsSvc := service.NewAnalyticsService(analyticsCache, evaluator)
-	answerSvc := service.NewAnswerService(answerRepo, playerCache, poolCache, playerSvc, evaluator)
+	answerSvc := service.NewAnswerService(answerRepo, surveyRepo, roomCache, playerCache, poolCache, playerSvc, evaluator)
 
 	// Inject analytics service into answer service for L2/L3/L4 updates
 	answerSvc.SetAnalyticsService(analyticsSvc)

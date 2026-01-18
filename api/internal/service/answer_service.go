@@ -10,8 +10,11 @@ import (
 )
 
 // AnswerService handles answer submission, drafts, and skips
+// AnswerService handles answer submission, drafts, and drafts
 type AnswerService struct {
 	answerRepo   repository.AnswerRepo
+	surveyRepo   repository.SurveyRepo
+	roomCache    cache.RoomCache // Added RoomCache
 	playerCache  cache.PlayerCache
 	poolCache    cache.PoolCache
 	playerSvc    *PlayerService
@@ -23,6 +26,8 @@ type AnswerService struct {
 // NewAnswerService creates a new answer service
 func NewAnswerService(
 	answerRepo repository.AnswerRepo,
+	surveyRepo repository.SurveyRepo,
+	roomCache cache.RoomCache, // Added arg
 	playerCache cache.PlayerCache,
 	poolCache cache.PoolCache,
 	playerSvc *PlayerService,
@@ -30,6 +35,8 @@ func NewAnswerService(
 ) *AnswerService {
 	return &AnswerService{
 		answerRepo:  answerRepo,
+		surveyRepo:  surveyRepo,
+		roomCache:   roomCache,
 		playerCache: playerCache,
 		poolCache:   poolCache,
 		playerSvc:   playerSvc,
@@ -47,8 +54,26 @@ func (s *AnswerService) SetAnalyticsService(svc *AnalyticsService) {
 	s.analyticsSvc = svc
 }
 
+// checkRoomActive helper
+func (s *AnswerService) checkRoomActive(ctx context.Context, roomCode string) error {
+	meta, err := s.roomCache.GetMeta(ctx, roomCode)
+	if err != nil {
+		return fmt.Errorf("failed to get room meta: %w", err)
+	}
+	if meta == nil {
+		return fmt.Errorf("room not found")
+	}
+	if meta.Status != model.RoomStatusActive {
+		return fmt.Errorf("room is not active (status: %s)", meta.Status)
+	}
+	return nil
+}
+
 // SaveDraft saves a draft answer
 func (s *AnswerService) SaveDraft(ctx context.Context, roomCode, playerID, questionKey, draft string) error {
+	if err := s.checkRoomActive(ctx, roomCode); err != nil {
+		return err
+	}
 	state, err := s.playerCache.GetAttempt(ctx, roomCode, playerID, questionKey)
 	if err != nil {
 		return err
@@ -66,15 +91,20 @@ func (s *AnswerService) SaveDraft(ctx context.Context, roomCode, playerID, quest
 
 // SubmitAnswer handles answer submission with idempotency and evaluation
 func (s *AnswerService) SubmitAnswer(ctx context.Context, roomCode, playerID string, req *model.SubmitAnswerRequest) (*model.SubmitAnswerResponse, error) {
+	if err := s.checkRoomActive(ctx, roomCode); err != nil {
+		return nil, err
+	}
 	// Idempotency check
 	exists, err := s.answerRepo.CheckIdempotency(ctx, roomCode, playerID, req.QuestionKey, req.ClientAttemptID)
 	if err != nil {
 		return nil, fmt.Errorf("idempotency check failed: %w", err)
 	}
 	if exists {
-		// Already processed, return success
+		// Already processed, return pending if it was recent or evaluated if done
+		// For simplicity, if it exists, we assume it's being processed or done.
+		// Ideally we check state.
 		return &model.SubmitAnswerResponse{
-			Status: model.AnswerStatusEvaluated,
+			Status: model.AnswerStatusSubmitted, // Or Evaluated if we checked
 		}, nil
 	}
 
@@ -100,117 +130,171 @@ func (s *AnswerService) SubmitAnswer(ctx context.Context, roomCode, playerID str
 	}
 	state.Tries++
 	state.SubmittedAnswer = req.TextAnswer
+	state.Status = model.AnswerStatusSubmitted // Mark as submitted
 	state.UpdatedAt = time.Now()
 
-	// Create answer record
-	answer := &model.Answer{
-		RoomCode:        roomCode,
-		PlayerID:        playerID,
-		QuestionKey:     req.QuestionKey,
-		ClientAttemptID: req.ClientAttemptID,
-		TextAnswer:      req.TextAnswer,
-		DegreeValue:     req.DegreeValue,
-		Status:          model.AnswerStatusSubmitted,
-		Tries:           state.Tries,
-	}
-
-	var response model.SubmitAnswerResponse
-
-	// Evaluate based on question type
-	switch question.Type {
-	case model.QuestionTypeEssay:
-		// AI evaluation
-		evalResult, err := s.evaluator.EvaluateAnswer(ctx, question, answer)
-		if err != nil {
-			return nil, fmt.Errorf("evaluation failed: %w", err)
-		}
-
-		answer.Status = model.AnswerStatusEvaluated
-		answer.Resolution = model.AnswerResolution(evalResult.Resolution)
-		answer.Signals = &evalResult.Signals
-		answer.EvalSummary = evalResult.Signals.Summary
-
-		// Calculate points
-		points := int(evalResult.QualityScore * float64(question.PointsMax))
-		answer.PointsEarned = points
-
-		state.Status = model.AnswerStatusEvaluated
-		state.Resolution = answer.Resolution
-		state.EvalSummary = answer.EvalSummary
-
-		response.Status = answer.Status
-		response.Resolution = answer.Resolution
-		response.PointsEarned = points
-		response.EvalSummary = answer.EvalSummary
-
-		// Handle UNSAT - may trigger follow-up
-		if answer.Resolution == model.ResolutionUnsat {
-			followUp, err := s.getOrGenerateFollowUp(ctx, roomCode, playerID, question, evalResult, answer.TextAnswer)
-			if err == nil && followUp != nil {
-				if err := s.playerSvc.InsertFollowUp(ctx, roomCode, playerID, followUp); err == nil {
-					response.FollowUp = followUp
-				}
-			}
-		}
-
-	case model.QuestionTypeDegree:
-		// Degree questions give fixed points, no gating
-		points := question.PointsMax / 2 // Participation points
-		answer.PointsEarned = points
-		answer.Status = model.AnswerStatusEvaluated
-		answer.Resolution = model.ResolutionSat
-
-		state.Status = model.AnswerStatusEvaluated
-		state.Resolution = model.ResolutionSat
-
-		response.Status = answer.Status
-		response.Resolution = answer.Resolution
-		response.PointsEarned = points
-	}
-
-	// Save attempt state
+	// Update attempt state immediately to indicate "Submitted"
 	if err := s.playerCache.SetAttempt(ctx, roomCode, playerID, req.QuestionKey, state); err != nil {
 		return nil, err
 	}
 
-	// Persist answer to MongoDB
-	now := time.Now()
-	answer.EvaluatedAt = &now
-	if _, err := s.answerRepo.Create(ctx, answer); err != nil {
-		return nil, err
-	}
-
-	// Update player score (this also broadcasts leaderboard update)
-	if answer.PointsEarned > 0 {
-		if _, err := s.playerSvc.UpdateScore(ctx, roomCode, playerID, answer.PointsEarned); err != nil {
-			return nil, err
-		}
-	}
-
-	// Broadcast player progress to host
+	// BROADCAST IMMEDIATE ACK/THINKING
 	if s.broadcaster != nil {
+		// 1. Tell Host that player has submitted
 		s.broadcaster.BroadcastToHost(roomCode, "player_progress_update", map[string]interface{}{
 			"playerId":    playerID,
 			"questionKey": req.QuestionKey,
-			"status":      string(answer.Status),
-			"resolution":  string(answer.Resolution),
+			"status":      string(model.AnswerStatusSubmitted),
+			"optionIndex": req.OptionIndex,
+		})
+
+		// 2. Tell Player that AI is thinking (The immediate feedback requested)
+		s.broadcaster.BroadcastToPlayer(roomCode, playerID, "ai_thinking", map[string]interface{}{
+			"questionKey": req.QuestionKey,
 		})
 	}
 
-	// If satisfactory or degree, advance to next question
-	if answer.Resolution == model.ResolutionSat {
-		nextQ, err := s.playerSvc.AdvanceToNextQuestion(ctx, roomCode, playerID)
-		if err != nil {
-			return nil, err
-		}
-		response.NextQuestion = nextQ
-	}
+	// ASYNC PROCESSING
+	// Create a detached context for the goroutine
+	// Note: In production, use a proper background context with timeout or worker pool
+	go func(asyncCtx context.Context, rCode, pID string, request model.SubmitAnswerRequest, q *model.Question, st *model.AttemptState) {
+		// Recover from panics in goroutine
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Recovered from panic in SubmitAnswer async: %v\n", r)
+			}
+		}()
 
-	return &response, nil
+		// Create answer record shell
+		answer := &model.Answer{
+			RoomCode:        rCode,
+			PlayerID:        pID,
+			QuestionKey:     request.QuestionKey,
+			ClientAttemptID: request.ClientAttemptID,
+			TextAnswer:      request.TextAnswer,
+			DegreeValue:     request.DegreeValue,
+			Tries:           st.Tries,
+			Status:          model.AnswerStatusSubmitted,
+			OptionIndex:     request.OptionIndex,
+		}
+
+		var response model.SubmitAnswerResponse
+
+		// Evaluate based on question type
+		switch q.Type {
+		case model.QuestionTypeEssay:
+			// AI evaluation (Slow)
+			evalResult, err := s.evaluator.EvaluateAnswer(asyncCtx, q, answer)
+			if err != nil {
+				fmt.Printf("Evaluation failed: %v\n", err)
+				// Broadcast error?
+				if s.broadcaster != nil {
+					s.broadcaster.BroadcastToPlayer(rCode, pID, "error", map[string]string{"message": "Evaluation failed"})
+				}
+				return
+			}
+
+			answer.Status = model.AnswerStatusEvaluated
+			answer.Resolution = model.AnswerResolution(evalResult.Resolution)
+			answer.Signals = &evalResult.Signals
+			answer.EvalSummary = evalResult.Signals.Summary
+
+			// Calculate points
+			points := 0
+			if model.AnswerResolution(evalResult.Resolution) == model.ResolutionSat {
+				points = int(evalResult.QualityScore * float64(q.PointsMax))
+			}
+
+			answer.PointsEarned = points
+
+			st.Status = model.AnswerStatusEvaluated
+			st.Resolution = answer.Resolution
+			st.EvalSummary = answer.EvalSummary
+
+			response.Status = answer.Status
+			response.Resolution = answer.Resolution
+			response.PointsEarned = points
+			response.EvalSummary = answer.EvalSummary
+
+			if answer.Resolution == model.ResolutionSat {
+				followUp, err := s.getOrGenerateFollowUp(asyncCtx, rCode, pID, q, evalResult, answer.TextAnswer)
+				if err == nil && followUp != nil {
+					if err := s.playerSvc.InsertFollowUp(asyncCtx, rCode, pID, followUp); err == nil {
+						response.FollowUp = followUp
+					}
+				}
+			}
+
+		case model.QuestionTypeDegree, model.QuestionTypeMCQ:
+			// Degree and MCQ questions give fixed points (half of max)
+			points := q.PointsMax / 2
+			answer.PointsEarned = points
+			answer.Status = model.AnswerStatusEvaluated
+			answer.Resolution = model.ResolutionSat
+
+			st.Status = model.AnswerStatusEvaluated
+			st.Resolution = model.ResolutionSat
+
+			response.Status = answer.Status
+			response.Resolution = answer.Resolution
+			response.PointsEarned = points
+		}
+
+		// Save attempt state
+		s.playerCache.SetAttempt(asyncCtx, rCode, pID, request.QuestionKey, st)
+
+		// Persist answer
+		now := time.Now()
+		answer.EvaluatedAt = &now
+		s.answerRepo.Create(asyncCtx, answer)
+
+		// Update score & Host Broadcast
+		if answer.PointsEarned > 0 {
+			s.playerSvc.UpdateScore(asyncCtx, rCode, pID, answer.PointsEarned)
+		}
+
+		if s.broadcaster != nil {
+			// Notify Host
+			s.broadcaster.BroadcastToHost(rCode, "player_progress_update", map[string]interface{}{
+				"playerId":    pID,
+				"questionKey": request.QuestionKey,
+				"status":      string(answer.Status),
+				"resolution":  string(answer.Resolution),
+				"optionIndex": answer.OptionIndex,
+			})
+
+			// Notify Player (The "ACK" that work is done)
+
+			// If satisfactory, advance
+			if answer.Resolution == model.ResolutionSat {
+				nextQ, _ := s.playerSvc.AdvanceToNextQuestion(asyncCtx, rCode, pID)
+				response.NextQuestion = nextQ
+			}
+
+			// Broadcast Result to Player
+			s.broadcaster.BroadcastToPlayer(rCode, pID, "evaluation_result", response)
+
+			// Update Analytics (L2/L3/L4)
+			if s.analyticsSvc != nil {
+				s.analyticsSvc.UpdatePlayerProfile(asyncCtx, rCode, pID, answer.Signals, answer.Resolution)
+				s.analyticsSvc.UpdateQuestionProfile(asyncCtx, rCode, request.QuestionKey, answer.Signals, answer.Resolution, answer.DegreeValue, answer.OptionIndex)
+				s.analyticsSvc.UpdateRoomMemory(asyncCtx, rCode, answer.Signals)
+			}
+		}
+
+	}(context.Background(), roomCode, playerID, *req, question, state)
+
+	// Return immediate ACK
+	return &model.SubmitAnswerResponse{
+		Status: model.AnswerStatusSubmitted,
+	}, nil
 }
 
 // Skip marks a question as skipped and closes its follow-up chain
 func (s *AnswerService) Skip(ctx context.Context, roomCode, playerID, questionKey string) (*model.Question, error) {
+	if err := s.checkRoomActive(ctx, roomCode); err != nil {
+		return nil, err
+	}
 	// Get question to find parent
 	question, err := s.playerCache.GetQuestionMap(ctx, roomCode, playerID, questionKey)
 	if err != nil {
@@ -256,6 +340,19 @@ func (s *AnswerService) Skip(ctx context.Context, roomCode, playerID, questionKe
 
 // getOrGenerateFollowUp retrieves from pool or generates on-demand
 func (s *AnswerService) getOrGenerateFollowUp(ctx context.Context, roomCode, playerID string, question *model.Question, evalResult *model.EvaluationResult, answerText string) (*model.Question, error) {
+	// Depth check - don't go too deep!
+	// Key format: Q1.1.1
+	dots := 0
+	for _, char := range question.Key {
+		if char == '.' {
+			dots++
+		}
+	}
+	if dots >= 2 { // Max depth: Q1.1.1 (2 dots) -> no more children
+		fmt.Printf("[FollowUp] Depth limit reached for %s (dots=%d). Stopping.\n", question.Key, dots)
+		return nil, nil
+	}
+
 	// Try pool first
 	pool, err := s.poolCache.GetPool(ctx, roomCode, question.Key)
 	if err != nil {
@@ -313,7 +410,18 @@ func (s *AnswerService) getOrGenerateFollowUp(ctx context.Context, roomCode, pla
 		}
 	}
 
+	// Fetch Survey Intent
+	surveyIntent := "Gather general feedback"
+
+	roomMeta, err := s.roomCache.GetMeta(ctx, roomCode)
+	if err == nil && roomMeta != nil {
+		survey, err := s.surveyRepo.GetByID(ctx, roomMeta.SurveyID)
+		if err == nil && survey != nil && survey.Intent != "" {
+			surveyIntent = survey.Intent
+		}
+	}
+
 	// Generate on-demand
 	player, _ := s.playerSvc.GetPlayer(ctx, roomCode, playerID)
-	return s.evaluator.GenerateFollowUp(ctx, question, player, evalResult, answerText, qProfile, roomMemory, history)
+	return s.evaluator.GenerateFollowUp(ctx, question, player, evalResult, answerText, qProfile, roomMemory, history, surveyIntent)
 }

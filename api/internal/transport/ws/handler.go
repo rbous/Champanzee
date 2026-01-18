@@ -27,15 +27,17 @@ var upgrader = websocket.Upgrader{
 
 // Handler handles WebSocket connections
 type Handler struct {
-	hub     *Hub
-	authSvc *service.AuthService
+	hub       *Hub
+	authSvc   *service.AuthService
+	playerSvc *service.PlayerService
 }
 
 // NewHandler creates a new WebSocket handler
-func NewHandler(hub *Hub, authSvc *service.AuthService) *Handler {
+func NewHandler(hub *Hub, authSvc *service.AuthService, playerSvc *service.PlayerService) *Handler {
 	return &Handler{
-		hub:     hub,
-		authSvc: authSvc,
+		hub:       hub,
+		authSvc:   authSvc,
+		playerSvc: playerSvc,
 	}
 }
 
@@ -103,9 +105,17 @@ func (h *Handler) PlayerWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch player to get nickname
+	player, err := h.playerSvc.GetPlayer(r.Context(), code, claims.PlayerID)
+	nickname := ""
+	if err == nil && player != nil {
+		nickname = player.Nickname
+	}
+
 	conn := &Connection{
 		RoomCode: code,
 		PlayerID: claims.PlayerID,
+		Nickname: nickname,
 		IsHost:   false,
 		Send:     make(chan []byte, 256),
 		Hub:      h.hub,

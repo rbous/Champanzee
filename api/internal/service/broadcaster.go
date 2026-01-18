@@ -5,4 +5,5 @@ type Broadcaster interface {
 	BroadcastToHost(roomCode string, msgType string, payload interface{})
 	BroadcastToPlayer(roomCode, playerID string, msgType string, payload interface{})
 	BroadcastToAllPlayers(roomCode string, msgType string, payload interface{})
+	DisconnectRoom(roomCode string)
 }

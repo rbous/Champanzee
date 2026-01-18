@@ -149,7 +149,7 @@ func (h *RoomHandler) Leaderboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	entries, err := h.leaderboard.GetTop(r.Context(), code, top)
+	entries, err := h.playerSvc.GetLeaderboard(r.Context(), code, top)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

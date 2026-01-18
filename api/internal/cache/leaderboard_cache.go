@@ -17,6 +17,7 @@ type LeaderboardCache interface {
 // LeaderboardEntry represents a single leaderboard entry
 type LeaderboardEntry struct {
 	PlayerID string `json:"playerId"`
+	Nickname string `json:"nickname"`
 	Score    int    `json:"score"`
 	Rank     int    `json:"rank"`
 }

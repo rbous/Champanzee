@@ -43,6 +43,21 @@ func (s *PlayerService) SetBroadcaster(b Broadcaster) {
 	s.broadcaster = b
 }
 
+// checkRoomActive helper
+func (s *PlayerService) checkRoomActive(ctx context.Context, roomCode string) error {
+	meta, err := s.roomCache.GetMeta(ctx, roomCode)
+	if err != nil {
+		return fmt.Errorf("failed to get room meta: %w", err)
+	}
+	if meta == nil {
+		return fmt.Errorf("room not found")
+	}
+	if meta.Status != model.RoomStatusActive {
+		return fmt.Errorf("room is not active (status: %s)", meta.Status)
+	}
+	return nil
+}
+
 // JoinRoom handles player joining a room
 func (s *PlayerService) JoinRoom(ctx context.Context, roomCode, nickname string) (*model.PlayerJoinResponse, error) {
 	// Get room meta
@@ -111,6 +126,7 @@ func (s *PlayerService) JoinRoom(ctx context.Context, roomCode, nickname string)
 			Threshold: q.Threshold,
 			ScaleMin:  q.ScaleMin,
 			ScaleMax:  q.ScaleMax,
+			Options:   q.Options,
 		}
 		if err := s.playerCache.SetQuestionMap(ctx, roomCode, playerID, q.Key, question); err != nil {
 			return nil, fmt.Errorf("failed to set question map: %w", err)
@@ -153,32 +169,42 @@ func (s *PlayerService) JoinRoom(ctx context.Context, roomCode, nickname string)
 	}, nil
 }
 
-// GetCurrentQuestion retrieves the player's current question
-func (s *PlayerService) GetCurrentQuestion(ctx context.Context, roomCode, playerID string) (*model.Question, error) {
+// GetCurrentQuestion retrieves the player's current question and details
+func (s *PlayerService) GetCurrentQuestion(ctx context.Context, roomCode, playerID string) (*model.Question, *model.Player, error) {
 	// Check room status
 	meta, err := s.roomCache.GetMeta(ctx, roomCode)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get room meta: %w", err)
+		return nil, nil, fmt.Errorf("failed to get room meta: %w", err)
 	}
 	if meta == nil {
-		return nil, fmt.Errorf("room not found")
+		return nil, nil, fmt.Errorf("room not found")
 	}
+	// Fetch the player so we can return their current score
+	player, err := s.playerCache.GetPlayer(ctx, roomCode, playerID)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	if meta.Status == model.RoomStatusLobby {
-		return nil, nil // Waiting for host
+		return nil, player, nil // Waiting for host
 	}
 
 	currentKey, err := s.playerCache.GetCurrent(ctx, roomCode, playerID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if currentKey == "" {
-		return nil, nil // No more questions
+		return nil, player, nil // No more questions
 	}
-	return s.playerCache.GetQuestionMap(ctx, roomCode, playerID, currentKey)
+	q, err := s.playerCache.GetQuestionMap(ctx, roomCode, playerID, currentKey)
+	return q, player, err
 }
 
 // AdvanceToNextQuestion moves to the next question in queue
 func (s *PlayerService) AdvanceToNextQuestion(ctx context.Context, roomCode, playerID string) (*model.Question, error) {
+	if err := s.checkRoomActive(ctx, roomCode); err != nil {
+		return nil, err
+	}
 	// Pop current from queue
 	_, err := s.playerCache.PopQueue(ctx, roomCode, playerID)
 	if err != nil {
@@ -240,6 +266,9 @@ func (s *PlayerService) AdvanceToNextQuestion(ctx context.Context, roomCode, pla
 
 // InsertFollowUp inserts a follow-up question after the current question
 func (s *PlayerService) InsertFollowUp(ctx context.Context, roomCode, playerID string, followUp *model.Question) error {
+	if err := s.checkRoomActive(ctx, roomCode); err != nil {
+		return err
+	}
 	currentKey, err := s.playerCache.GetCurrent(ctx, roomCode, playerID)
 	if err != nil {
 		return err
@@ -261,6 +290,9 @@ func (s *PlayerService) GetPlayer(ctx context.Context, roomCode, playerID string
 
 // UpdateScore updates a player's score and broadcasts leaderboard update
 func (s *PlayerService) UpdateScore(ctx context.Context, roomCode, playerID string, pointsToAdd int) (int, error) {
+	if err := s.checkRoomActive(ctx, roomCode); err != nil {
+		return 0, err
+	}
 	player, err := s.playerCache.GetPlayer(ctx, roomCode, playerID)
 	if err != nil {
 		return 0, err
@@ -281,11 +313,31 @@ func (s *PlayerService) UpdateScore(ctx context.Context, roomCode, playerID stri
 
 	// Broadcast leaderboard update to host
 	if s.broadcaster != nil {
-		entries, _ := s.leaderboard.GetTop(ctx, roomCode, 20)
+		entries, _ := s.GetLeaderboard(ctx, roomCode, 20)
 		s.broadcaster.BroadcastToHost(roomCode, "leaderboard_update", map[string]interface{}{
 			"leaderboard": entries,
 		})
 	}
 
 	return newScore, nil
+}
+
+// GetLeaderboard retrieves and enriches the leaderboard
+func (s *PlayerService) GetLeaderboard(ctx context.Context, roomCode string, limit int) ([]cache.LeaderboardEntry, error) {
+	entries, err := s.leaderboard.GetTop(ctx, roomCode, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	// Enrich with nicknames
+	// Since we are using Redis logic, we can try to fetch players efficiently.
+	// For now, simple loop is fine as N is small (20).
+	for i := range entries {
+		p, err := s.playerCache.GetPlayer(ctx, roomCode, entries[i].PlayerID)
+		if err == nil && p != nil {
+			entries[i].Nickname = p.Nickname
+		}
+	}
+
+	return entries, nil
 }

@@ -132,7 +132,7 @@ export default function ReportsPage() {
                                 {snapshot.leaderboard?.length > 0 ? (
                                     <div className="space-y-2">
                                         {snapshot.leaderboard.slice(0, 10).map((entry, i) => (
-                                            <div key={entry.playerId} className="leaderboard-item">
+                                            <div key={entry.playerId || `entry-${i}`} className="leaderboard-item">
                                                 <div className={`leaderboard-rank ${i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : ''
                                                     }`}>
                                                     {entry.rank}
@@ -155,8 +155,8 @@ export default function ReportsPage() {
                             <div className="card">
                                 <h2 className="text-lg font-semibold mb-4">Question Breakdown</h2>
                                 <div className="space-y-6">
-                                    {snapshot.questionProfiles?.map((q) => (
-                                        <div key={q.key} className="p-4 rounded-lg bg-[var(--background-elevated)]">
+                                    {snapshot.questionProfiles?.map((q, i) => (
+                                        <div key={q.key || `question-${i}`} className="p-4 rounded-lg bg-[var(--background-elevated)]">
                                             <div className="flex items-center gap-2 mb-2">
                                                 <span className="badge badge-neutral">{q.key}</span>
                                                 <span className="badge badge-neutral">{q.type}</span>

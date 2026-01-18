@@ -6,6 +6,7 @@ type QuestionType string
 const (
 	QuestionTypeEssay  QuestionType = "ESSAY"  // Free text, AI-evaluated, can gate
 	QuestionTypeDegree QuestionType = "DEGREE" // Rating/slider, never gates
+	QuestionTypeMCQ    QuestionType = "MCQ"    // Multiple choice, Kahoot-style, never gates
 )
 
 // Question is a runtime question instance (base or follow-up)
@@ -19,6 +20,7 @@ type Question struct {
 	Threshold float64      `json:"threshold,omitempty"` // ESSAY: satisfactory threshold
 	ScaleMin  int          `json:"scaleMin,omitempty"`  // DEGREE only
 	ScaleMax  int          `json:"scaleMax,omitempty"`  // DEGREE only
+	Options   []string     `json:"options,omitempty"`   // MCQ only
 }
 
 // FollowUpMode describes the type of follow-up

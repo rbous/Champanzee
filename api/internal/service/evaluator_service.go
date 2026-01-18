@@ -52,16 +52,20 @@ func (s *EvaluatorService) EvaluateAnswer(ctx context.Context, question *model.Q
 }
 
 // GenerateFollowUp generates a personalized follow-up question (fast model)
-func (s *EvaluatorService) GenerateFollowUp(ctx context.Context, question *model.Question, player *model.Player, evalResult *model.EvaluationResult, answerText string, qProfile *model.QuestionProfile, roomMemory *model.RoomMemory, history []model.Answer) (*model.Question, error) {
+func (s *EvaluatorService) GenerateFollowUp(ctx context.Context, question *model.Question, player *model.Player, evalResult *model.EvaluationResult, answerText string, qProfile *model.QuestionProfile, roomMemory *model.RoomMemory, history []model.Answer, surveyIntent string) (*model.Question, error) {
 	if !s.config.IsEnabled() {
+		fmt.Println("[FollowUp] Config disabled, using mock")
 		return s.mockFollowUp(question), nil
 	}
 
-	prompt := s.buildFollowUpPrompt(question, player, evalResult, answerText, qProfile, roomMemory, history)
+	fmt.Printf("[FollowUp] Generating for Q: %s | Answer: %.50s...\n", question.Key, answerText)
+	prompt := s.buildFollowUpPrompt(question, player, evalResult, answerText, qProfile, roomMemory, history, surveyIntent)
 	response, err := s.callGemini(ctx, s.config.Models.FollowUp, prompt)
 	if err != nil {
+		fmt.Printf("[FollowUp] Call Error: %v\n", err)
 		return s.mockFollowUp(question), nil
 	}
+	fmt.Printf("[FollowUp] Raw Response: %s\n", response)
 
 	var gen model.FollowUpGeneration
 	if err := json.Unmarshal([]byte(response), &gen); err != nil {
@@ -175,6 +179,11 @@ func (s *EvaluatorService) callGemini(ctx context.Context, modelName, prompt str
 	}
 
 	url := fmt.Sprintf("%s?key=%s", s.config.ModelEndpoint(modelName), s.config.APIKey)
+
+	// Debug logging
+	fmt.Printf("[Gemini] Requesting %s...\n", modelName)
+	fmt.Printf("[Gemini] Prompt Preview: %.100s...\n", prompt) // Log start of prompt
+
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return "", err
@@ -200,16 +209,35 @@ func (s *EvaluatorService) callGemini(ctx context.Context, modelName, prompt str
 					Text string `json:"text"`
 				} `json:"parts"`
 			} `json:"content"`
+			FinishReason string `json:"finishReason"`
 		} `json:"candidates"`
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+			Status  string `json:"status"`
+		} `json:"error"`
 	}
 
 	if err := json.Unmarshal(body, &geminiResp); err != nil {
+		fmt.Printf("[Gemini] JSON Unmarshal Error: %v | Body: %s\n", err, string(body))
 		return "", err
+	}
+
+	if geminiResp.Error != nil {
+		fmt.Printf("[Gemini] API Error: %s (Code: %d, Status: %s)\n", geminiResp.Error.Message, geminiResp.Error.Code, geminiResp.Error.Status)
+		return "", fmt.Errorf("gemini api error: %s", geminiResp.Error.Message)
 	}
 
 	if len(geminiResp.Candidates) > 0 && len(geminiResp.Candidates[0].Content.Parts) > 0 {
 		return geminiResp.Candidates[0].Content.Parts[0].Text, nil
 	}
+
+	// Log details if empty
+	finishReason := "UNKNOWN"
+	if len(geminiResp.Candidates) > 0 {
+		finishReason = geminiResp.Candidates[0].FinishReason
+	}
+	fmt.Printf("[Gemini] Empty Response! FinishReason: %s | Raw Body: %s\n", finishReason, string(body))
 
 	return "", fmt.Errorf("empty response from Gemini")
 }
@@ -241,33 +269,35 @@ Threshold for SAT: %.2f
 Player's Answer: %s
 
 Evaluate the answer. If qualityScore >= threshold, resolution is SAT. Otherwise UNSAT.
-Extract themes, identify what's missing, and suggest a follow-up mode.`,
+Extract themes, identify what's missing, and suggest a follow-up mode.
+
+IMPORTANT: Scoring Criteria
+- **Quality over Quantity**: "Essays" do NOT need to be long. A few (2-3) sentences should get a 1.0 (100%) qualityScore IF they are detailed, pertinent, and answer the prompt well.
+- **No Yapping**: Penalize vague, repetitive, or filler content ("yappering").
+- **Leniency**: Start at 0.7 for basic coherence. Only mark UNSAT for irrelevance or extreme brevity (1-2 words).`,
 		question.Prompt, question.Rubric, question.Threshold, answer.TextAnswer)
 }
 
-func (s *EvaluatorService) buildFollowUpPrompt(question *model.Question, player *model.Player, evalResult *model.EvaluationResult, answerText string, qProfile *model.QuestionProfile, roomMemory *model.RoomMemory, history []model.Answer) string {
+func (s *EvaluatorService) buildFollowUpPrompt(question *model.Question, player *model.Player, evalResult *model.EvaluationResult, answerText string, qProfile *model.QuestionProfile, roomMemory *model.RoomMemory, history []model.Answer, surveyIntent string) string {
 	missingStr := strings.Join(evalResult.Signals.Missing, ", ")
 
 	// Context construction
 	peerCtx := ""
 	if qProfile != nil {
-		topMis := ""
-		if len(qProfile.Misunderstandings) > 0 {
-			topMis = "- Common misunderstandings: " + strings.Join(qProfile.Misunderstandings, "; ")
-		}
 		topThemes := ""
 		themes := make([]string, 0)
 		for t := range qProfile.ThemeCounts {
 			themes = append(themes, t)
 		}
 		if len(themes) > 0 {
-			// Just take first 3 for brevity
-			if len(themes) > 3 {
-				themes = themes[:3]
+			if len(themes) > 4 {
+				themes = themes[:4]
 			}
-			topThemes = "- Other players discussed: " + strings.Join(themes, ", ")
+			topThemes = strings.Join(themes, ", ")
 		}
-		peerCtx += fmt.Sprintf("\nPeer Context:\n%s\n%s", topThemes, topMis)
+		if topThemes != "" {
+			peerCtx += fmt.Sprintf("- What others are saying: %s\n", topThemes)
+		}
 	}
 
 	if roomMemory != nil {
@@ -280,62 +310,83 @@ func (s *EvaluatorService) buildFollowUpPrompt(question *model.Question, player 
 			if len(globals) > 3 {
 				globals = globals[:3]
 			}
-			globalThemes = "- Room-wide themes: " + strings.Join(globals, ", ")
+			globalThemes = strings.Join(globals, ", ")
 		}
-		peerCtx += fmt.Sprintf("\nRoom Context:\n%s", globalThemes)
+		if globalThemes != "" {
+			peerCtx += fmt.Sprintf("- Wider room themes: %s\n", globalThemes)
+		}
+	}
+
+	if peerCtx == "" {
+		peerCtx = "- No peer data yet (early in session)"
 	}
 
 	// History construction
 	historyStr := ""
 	if len(history) > 0 {
 		var sb strings.Builder
-		sb.WriteString("\nConversation History:\n")
-		for _, ans := range history {
-			// We ideally need the question text too, but answer model doesn't store it directly.
-			// We can infer it's a previous turn.
-			// For now, let's just list the player's previous answers to give context on what they've already said.
-			sb.WriteString(fmt.Sprintf("- Player previously said: \"%s\"\n", ans.TextAnswer))
+		sb.WriteString("Player's Previous Context:\n")
+		// Take last 3 answers
+		start := 0
+		if len(history) > 3 {
+			start = len(history) - 3
+		}
+		for _, ans := range history[start:] {
+			sb.WriteString(fmt.Sprintf("- Said: \"%s\"\n", ans.TextAnswer))
 		}
 		historyStr = sb.String()
 	}
 
-	return fmt.Sprintf(`You are a charismatic game show host. Generate a personalized follow-up question for a player.
+	return fmt.Sprintf(`You are an expert qualitative researcher and charismatic game host. Your goal is to get the best possible data for the survey's core intent by asking one perfect follow-up question.
+
+SURVEY CONTEXT:
+Intent/Goal: "%s"
+Current Question: "%s"
+
+PLAYER DATA:
+Player Answer: "%s"
+Initial Analysis: %s (Missing: %s)
+%s
+
+SOCIAL CONTEXT (The Vibe):
+%s
+
+TASK:
+1. GAP ANALYSIS: Compare the Player Answer to the Survey Intent. What specific detail is missing that would make this answer truly valuable to the host?
+2. SOCIAL CHECK: Look at the Social Context. Is the player saying something unique, or echoing the crowd?
+3. GENERATE: Create a follow-up question that:
+   - Digs into the specific gap identified.
+   - Acknowledging what they already said (charismatic).
+   - If they are echoing the crowd, ask for a personal nuance ("You mentioned X like everyone else, but how does that affect YOU specifically?").
+   - If they are unique, ask them to elaborate on their unique angle.
+   - STAYS IN CHARACTER: Friendly, curious, professional but casual.
+   - KEEP IT CONCISE: Make the question engaging but not extremely long - aim for 1-2 sentences max.
+
 Return ONLY valid JSON:
 {
   "followUps": [{
     "questionKey": "%s.1",
     "parentKey": "%s",
-    "type": "ESSAY",
-    "prompt": "follow-up text",
-    "rubric": "grading guidance",
+    "type": "ESSAY" or "MCQ",
+    "prompt": "Your question text here",
+    "options": ["Option A", "Option B", "Option C", "Option D"], // Required if type is MCQ
+    "rubric": "Grade based on whether they answer the specific gap you asked about",
     "pointsMax": %d,
     "threshold": %.2f,
-    "reason_in_scope": "why this is relevant to the player's answer and room context"
+    "reason_in_scope": "I asked this because [explanation of the gap analysis]"
   }]
-}
-
-Original Question: %s
-Player's Answer: "%s"
-Evaluation: %s (Missing: %s)
-Suggested Mode: %s
-%s
-%s
-
-Instructions:
-1. Address the player's specific answer.
-2. If "Peer Context" is available, COMPARE their view to others (e.g., "Others mentioned ... how do you feel?").
-3. If "Comparative" mode is suggested, explicitly ask for a tradeoff.
-4. Do NOT repeat questions or ask about things the player has already mentioned in the "Conversation History".
-5. Keep it short, engaging, and conversational.`,
-		question.Key, question.Key, question.PointsMax/2, question.Threshold,
-		question.Prompt, answerText, evalResult.Resolution, missingStr, evalResult.FollowUpHint, peerCtx, historyStr)
+}`,
+		surveyIntent, question.Prompt,
+		answerText, evalResult.Resolution, missingStr, historyStr,
+		peerCtx,
+		question.Key, question.Key, question.PointsMax/2, question.Threshold)
 }
 
 func (s *EvaluatorService) buildPoolPrompt(question *model.Question, surveyIntent string) string {
 	return fmt.Sprintf(`Generate follow-up question pools. Return ONLY valid JSON:
 {
   "clarify": [{"key": "%s.c1", "parentKey": "%s", "prompt": "...", "type": "ESSAY", "pointsMax": 30, "threshold": 0.6, "rubric": "..."}],
-  "deepen": [{"key": "%s.d1", "parentKey": "%s", "prompt": "...", "type": "ESSAY", "pointsMax": 30, "threshold": 0.6, "rubric": "..."}],
+  "deepen": [{"key": "%s.d1", "parentKey": "%s", "prompt": "...", "type": "MCQ", "options": ["Choice 1", "Choice 2", "Choice 3", "Choice 4"], "pointsMax": 30, "rubric": "..."}],
   "branch": [],
   "challenge": [],
   "compare": []
@@ -402,12 +453,14 @@ Generate a comprehensive but concise insight report.`,
 // Mock implementations
 func (s *EvaluatorService) mockEvaluate(question *model.Question, answer *model.Answer) *model.EvaluationResult {
 	wordCount := len(strings.Fields(answer.TextAnswer))
-	quality := float64(wordCount) / 50.0
+	// Leniency adjustment: 10 words is a full 1.0 score now (was 50)
+	quality := float64(wordCount) / 10.0
 	if quality > 1.0 {
 		quality = 1.0
 	}
 
 	resolution := "UNSAT"
+	// Ensure minimal viable answer passes if threshold is reasonable
 	if quality >= question.Threshold {
 		resolution = "SAT"
 	}

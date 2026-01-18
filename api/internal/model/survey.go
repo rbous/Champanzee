@@ -33,4 +33,7 @@ type BaseQuestion struct {
 	// For DEGREE type
 	ScaleMin int `json:"scaleMin,omitempty" bson:"scaleMin,omitempty"`
 	ScaleMax int `json:"scaleMax,omitempty" bson:"scaleMax,omitempty"`
+
+	// For MCQ type
+	Options []string `json:"options,omitempty" bson:"options,omitempty"`
 }

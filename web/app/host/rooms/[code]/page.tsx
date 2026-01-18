@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { rooms, getHostWebSocketUrl, type LeaderboardEntry } from '@/lib/api';
-import { useHostWebSocket, type PlayerJoinedEvent, type PlayerLeftEvent, type LeaderboardUpdateEvent, type PlayerProgressEvent } from '@/hooks/useWebSocket';
+import { useHostWebSocket, type PlayerJoinedEvent, type PlayerLeftEvent, type LeaderboardUpdateEvent, type PlayerProgressEvent, type RoomEndedEvent } from '@/hooks/useWebSocket';
 
 interface Player {
     id: string;
@@ -68,6 +68,10 @@ export default function RoomDashboard() {
         onPlayerLeft: handlePlayerLeft,
         onLeaderboardUpdate: handleLeaderboardUpdate,
         onPlayerProgress: handlePlayerProgress,
+        onRoomEnded: (event: RoomEndedEvent) => {
+            console.log("Room ended via WebSocket:", event);
+            setRoomStatus('ended');
+        },
     });
 
     useEffect(() => {

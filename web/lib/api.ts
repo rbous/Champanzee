@@ -24,13 +24,14 @@ export interface SurveySettings {
 
 export interface Question {
     key: string;
-    type: 'ESSAY' | 'DEGREE';
+    type: 'ESSAY' | 'DEGREE' | 'MCQ';
     prompt: string;
     rubric?: string;
     pointsMax: number;
     threshold?: number;
     scaleMin?: number;
     scaleMax?: number;
+    options?: string[]; // MCQ only
 }
 
 export interface CreateSurveyRequest {
@@ -70,6 +71,7 @@ export interface SubmitAnswerRequest {
     questionKey: string;
     textAnswer?: string;
     degreeValue?: number;
+    optionIndex?: number;
     clientAttemptId: string;
 }
 
@@ -103,9 +105,10 @@ export interface QuestionProfile {
     key: string;
     prompt: string;
     type: string;
-    satCount: number;
-    unsatCount: number;
-    skipCount: number;
+    ratingSum: number;
+    ratingCount: number;
+    optionHist: { [key: number]: number };
+    answerCount: number;
     topThemes: string[];
     topMissing: string[];
     misunderstandings: string[];
@@ -170,6 +173,11 @@ export interface RecommendedEdit {
     original: string;
     suggested: string;
     reason: string;
+}
+
+export interface SkipQuestionResponse {
+    done: boolean;
+    nextQuestion: Question | null;
 }
 
 // ============================================
@@ -337,11 +345,11 @@ export const rooms = {
 // ============================================
 
 export const player = {
-    getCurrentQuestion: async (code: string): Promise<Question | null> => {
-        const response = await request<{ question: Question | null }>(`/rooms/${code}/question/current`, {
+    getCurrentQuestion: async (code: string): Promise<{ question: Question | null, player?: { score: number } }> => {
+        const response = await request<{ question: Question | null, player?: { score: number } }>(`/rooms/${code}/question/current`, {
             headers: authHeaders('player'),
         });
-        return response.question;
+        return response;
     },
 
     saveDraft: async (code: string, questionKey: string, draft: string): Promise<void> => {
@@ -363,8 +371,8 @@ export const player = {
         });
     },
 
-    skipQuestion: async (code: string, questionKey: string): Promise<void> => {
-        await request(`/rooms/${code}/questions/${questionKey}/skip`, {
+    skipQuestion: async (code: string, questionKey: string): Promise<SkipQuestionResponse> => {
+        return request<SkipQuestionResponse>(`/rooms/${code}/questions/${questionKey}/skip`, {
             method: 'POST',
             headers: authHeaders('player'),
         });

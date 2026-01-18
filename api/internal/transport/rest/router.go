@@ -34,7 +34,7 @@ func NewRouter(c *Container) http.Handler {
 	roomHandler := handler.NewRoomHandler(c.RoomService, c.PlayerService, c.Leaderboard)
 	playerHandler := handler.NewPlayerHandler(c.PlayerService, c.AnswerService)
 	reportHandler := handler.NewReportHandler(c.ReportService)
-	wsHandler := ws.NewHandler(c.WSHub, c.AuthService)
+	wsHandler := ws.NewHandler(c.WSHub, c.AuthService, c.PlayerService)
 
 	// Initialize middleware
 	authMW := middleware.NewAuthMiddleware(c.AuthService)

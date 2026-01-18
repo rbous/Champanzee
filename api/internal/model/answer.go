@@ -32,6 +32,7 @@ type Answer struct {
 	// Response data
 	TextAnswer  string `json:"textAnswer,omitempty" bson:"textAnswer,omitempty"`   // For ESSAY
 	DegreeValue int    `json:"degreeValue,omitempty" bson:"degreeValue,omitempty"` // For DEGREE
+	OptionIndex *int   `json:"optionIndex,omitempty" bson:"optionIndex,omitempty"` // For MCQ
 
 	// State
 	Status     AnswerStatus     `json:"status" bson:"status"`
@@ -68,6 +69,7 @@ type SubmitAnswerRequest struct {
 	ClientAttemptID string `json:"clientAttemptId"` // Unique per submission attempt
 	TextAnswer      string `json:"textAnswer,omitempty"`
 	DegreeValue     int    `json:"degreeValue,omitempty"`
+	OptionIndex     *int   `json:"optionIndex,omitempty"`
 }
 
 // SubmitAnswerResponse is returned after answer submission

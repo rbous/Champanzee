@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { rooms } from '@/lib/api';
 
@@ -10,6 +10,16 @@ export default function Home() {
   const [nickname, setNickname] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    // Auto-rejoin check
+    const storedToken = localStorage.getItem('player_token');
+    const storedCode = localStorage.getItem('room_code');
+    if (storedToken && storedCode) {
+      // We could verify token validity here, but for now just redirect
+      router.push(`/play/${storedCode}`);
+    }
+  }, [router]);
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();

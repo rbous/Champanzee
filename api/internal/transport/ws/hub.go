@@ -23,6 +23,7 @@ const (
 // Player message types
 const (
 	MsgNextQuestion     MessageType = "next_question"
+	MsgAIThinking       MessageType = "ai_thinking"
 	MsgEvaluationResult MessageType = "evaluation_result"
 	MsgError            MessageType = "error"
 )
@@ -51,6 +52,7 @@ type Hub struct {
 type Connection struct {
 	RoomCode string
 	PlayerID string // Empty for host connections
+	Nickname string
 	IsHost   bool
 	Send     chan []byte
 	Hub      *Hub
@@ -93,7 +95,7 @@ func (h *Hub) run() {
 				log.Printf("Player %s connected to room %s", conn.PlayerID, conn.RoomCode)
 
 				// Notify host
-				h.notifyHostPlayerJoined(conn.RoomCode, conn.PlayerID)
+				h.notifyHostPlayerJoined(conn.RoomCode, conn.PlayerID, conn.Nickname)
 			}
 			h.mu.Unlock()
 
@@ -206,11 +208,39 @@ func (h *Hub) BroadcastToAllPlayers(roomCode string, msgType string, payload int
 	}
 }
 
-func (h *Hub) notifyHostPlayerJoined(roomCode, playerID string) {
+// DisconnectRoom closes all connections for a room (implements service.Broadcaster)
+func (h *Hub) DisconnectRoom(roomCode string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Disconnect host
 	if conn, ok := h.hostConns[roomCode]; ok {
+		delete(h.hostConns, roomCode)
+		close(conn.Send)
+		log.Printf("Host forced disconnect from room %s", roomCode)
+	}
+
+	// Disconnect players
+	if players, ok := h.playerConns[roomCode]; ok {
+		for playerID, conn := range players {
+			close(conn.Send)
+			log.Printf("Player %s forced disconnect from room %s", playerID, roomCode)
+		}
+		delete(h.playerConns, roomCode)
+	}
+}
+
+func (h *Hub) notifyHostPlayerJoined(roomCode, playerID, nickname string) {
+	if conn, ok := h.hostConns[roomCode]; ok {
+		payload := map[string]string{
+			"playerId": playerID,
+			"nickname": nickname,
+		}
+		dataMsg, _ := json.Marshal(payload)
+
 		data, _ := json.Marshal(&Message{
 			Type:    MsgPlayerJoined,
-			Payload: json.RawMessage(`{"playerId":"` + playerID + `"}`),
+			Payload: json.RawMessage(dataMsg),
 		})
 		select {
 		case conn.Send <- data:

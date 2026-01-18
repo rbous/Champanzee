@@ -29,17 +29,29 @@ func (h *PlayerHandler) GetCurrentQuestion(w http.ResponseWriter, r *http.Reques
 	roomCode := middleware.GetRoomCode(r.Context())
 	playerID := middleware.GetPlayerID(r.Context())
 
-	question, err := h.playerSvc.GetCurrentQuestion(r.Context(), roomCode, playerID)
+	question, player, err := h.playerSvc.GetCurrentQuestion(r.Context(), roomCode, playerID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if question == nil {
-		writeJSON(w, http.StatusOK, map[string]interface{}{"done": true, "question": nil})
-		return
+
+	response := map[string]interface{}{
+		"done":     false,
+		"question": question,
+		"player":   nil,
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{"done": false, "question": question})
+	if player != nil {
+		response["player"] = map[string]interface{}{
+			"score": player.Score,
+		}
+	}
+
+	if question == nil {
+		response["done"] = true
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 // DraftRequest is the request body for saving a draft

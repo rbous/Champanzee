@@ -80,7 +80,7 @@ func (s *AnalyticsService) UpdatePlayerProfile(ctx context.Context, roomCode, pl
 }
 
 // UpdateQuestionProfile updates L3 analytics after an answer
-func (s *AnalyticsService) UpdateQuestionProfile(ctx context.Context, roomCode, questionKey string, signals *model.Signals, resolution model.AnswerResolution, degreeValue int) error {
+func (s *AnalyticsService) UpdateQuestionProfile(ctx context.Context, roomCode, questionKey string, signals *model.Signals, resolution model.AnswerResolution, degreeValue int, optionIndex *int) error {
 	profile, err := s.analyticsCache.GetQuestionProfile(ctx, roomCode, questionKey)
 	if err != nil {
 		return err
@@ -92,6 +92,7 @@ func (s *AnalyticsService) UpdateQuestionProfile(ctx context.Context, roomCode, 
 			ThemeCounts:   make(map[string]int),
 			MissingCounts: make(map[string]int),
 			RatingHist:    make(map[int]int),
+			OptionHist:    make(map[int]int),
 		}
 	}
 
@@ -112,6 +113,11 @@ func (s *AnalyticsService) UpdateQuestionProfile(ctx context.Context, roomCode, 
 		profile.RatingHist[degreeValue]++
 		profile.RatingSum += degreeValue
 		profile.RatingCount++
+	}
+
+	// Update options (for MCQ type)
+	if optionIndex != nil {
+		profile.OptionHist[*optionIndex]++
 	}
 
 	// Update theme and missing counts from signals

@@ -175,7 +175,18 @@ func (s *RoomService) EndRoom(ctx context.Context, code, hostID string) error {
 		return fmt.Errorf("failed to create snapshot: %w", err)
 	}
 
-	return s.roomCache.SetStatus(ctx, code, model.RoomStatusEnded)
+	if err := s.roomCache.SetStatus(ctx, code, model.RoomStatusEnded); err != nil {
+		return err
+	}
+
+	// Notify and disconnect all clients
+	if s.broadcaster != nil {
+		s.broadcaster.BroadcastToAllPlayers(code, "room_ended", map[string]string{"status": "ENDED"})
+		s.broadcaster.BroadcastToHost(code, "room_ended", map[string]string{"status": "ENDED"})
+		s.broadcaster.DisconnectRoom(code)
+	}
+
+	return nil
 }
 
 // generateRoomCode creates a 6-char alphanumeric code

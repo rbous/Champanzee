@@ -38,16 +38,16 @@ func DefaultAIConfig() *AIConfig {
 		BaseURL: "https://generativelanguage.googleapis.com/v1beta/models",
 		Models: GeminiModels{
 			// Fast models for real-time operations
-			L1Eval:    getEnvOrDefault("GEMINI_MODEL_L1", "gemini-2.5-flash-preview-05-20"),
-			FollowUp:  getEnvOrDefault("GEMINI_MODEL_FOLLOWUP", "gemini-2.5-flash-preview-05-20"),
-			L3Refresh: getEnvOrDefault("GEMINI_MODEL_L3", "gemini-2.0-flash"),
+			L1Eval:    getEnvOrDefault("GEMINI_MODEL_L1", "gemini-2.0-flash-exp"),
+			FollowUp:  getEnvOrDefault("GEMINI_MODEL_FOLLOWUP", "gemini-2.0-flash-exp"),
+			L3Refresh: getEnvOrDefault("GEMINI_MODEL_L3", "gemini-2.0-flash-exp"),
 
 			// Quality models for background/bulk tasks
-			PoolGen:     getEnvOrDefault("GEMINI_MODEL_POOL", "gemini-2.0-flash"),
-			ScopeAnchor: getEnvOrDefault("GEMINI_MODEL_SCOPE", "gemini-2.0-flash"),
-			Report:      getEnvOrDefault("GEMINI_MODEL_REPORT", "gemini-2.0-flash"),
+			PoolGen:     getEnvOrDefault("GEMINI_MODEL_POOL", "gemini-2.0-flash-exp"),
+			ScopeAnchor: getEnvOrDefault("GEMINI_MODEL_SCOPE", "gemini-2.0-flash-exp"),
+			Report:      getEnvOrDefault("GEMINI_MODEL_REPORT", "gemini-2.0-flash-exp"),
 		},
-		TimeoutMS: 10000, // 10 second default timeout
+		TimeoutMS: 30000, // 30 second default timeout
 	}
 }
 
