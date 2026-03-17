@@ -1,45 +1,58 @@
-# 2026 Champs - Development Setup
+# champanzee
 
-This project uses Docker for development to ensure all developers have the same environment.
+real-time multiplayer survey platform — built at [uottahack 8](https://2025.uottahack.ca/), where it placed **2nd out of 40+ teams**.
 
-## Services
+**[champanzee.tech](https://champanzee.tech)**
 
-- **MongoDB**: Database on port 27017
-- **Redis**: Cache on port 6379
-- **API**: Go backend on port 8080 (with hot reloading)
-- **Web**: Next.js frontend on port 3000 (when added)
+## what it does
 
-## Getting Started
+champanzee turns surveys into live, multiplayer game sessions. hosts create survey-driven rooms, players join in real time, and responses are synced across all participants with sub-200ms latency. after each session, results are automatically pushed to surveymonkey for analysis.
 
-1. Ensure Docker and Docker Compose are installed.
+## tech stack
 
-2. Clone the repository and navigate to the project directory.
+| layer | tech |
+|---|---|
+| backend | go, redis, websockets |
+| frontend | next.js, typescript, react |
+| database | mongodb |
+| ai | gemini api |
+| infra | docker, docker compose |
 
-3. Run the development environment:
-   ```bash
-   docker-compose up --build
-   ```
+## architecture
 
-4. The services will be available at:
-   - API: http://localhost:8080
-   - MongoDB: localhost:27017
-   - Redis: localhost:6379
-   - Web: http://localhost:3000 (once frontend is added)
-
-## Development
-
-- The API uses Air for hot reloading, so changes to Go files will automatically rebuild.
-- Add your Next.js frontend in the `web/` folder with a proper `package.json`.
-- Database data persists in Docker volumes.
-
-## Stopping
-
-To stop the services:
-```bash
-docker-compose down
+```
+┌────────────┐     websockets     ┌────────────┐
+│   next.js  │ ◄────────────────► │   go api   │
+│   :3000    │                    │   :8080    │
+└────────────┘                    └─────┬──────┘
+                                       │
+                          ┌────────────┼────────────┐
+                          │            │            │
+                     ┌────▼───┐  ┌────▼───┐  ┌────▼────┐
+                     │ mongo  │  │ redis  │  │ gemini  │
+                     │ :27017 │  │ :6379  │  │   api   │
+                     └────────┘  └────────┘  └─────────┘
 ```
 
-To stop and remove volumes (reset data):
+## key features
+
+- **real-time sync** — websocket-based multiplayer state synchronization supporting 50+ concurrent users per session
+- **surveymonkey integration** — bidirectional api integration that auto-creates targeted data collectors from game sessions, cutting manual survey setup by 90%+
+- **ai-powered** — gemini api integration for intelligent question generation and response analysis
+- **hot reloading** — go backend uses air for instant rebuilds during development
+
+## getting started
+
 ```bash
-docker-compose down -v
+git clone https://github.com/rbous/Champanzee.git
+cd Champanzee
+cp .env.example .env
+docker-compose up --build
 ```
+
+- frontend: `http://localhost:3000`
+- api: `http://localhost:8080`
+
+## team
+
+built by the champanzee team at uottahack 8, january 2026.
