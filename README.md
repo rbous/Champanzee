@@ -1,6 +1,6 @@
 # champanzee
 
-real-time multiplayer survey platform — built at [uottahack 8](https://2025.uottahack.ca/), where it placed **2nd out of 40+ teams**.
+real-time multiplayer survey platform — built at [uottahack 8](https://2025.uottahack.ca/), where it placed **2nd out of 100+ teams**.
 
 **[champanzee.tech](https://champanzee.tech)**
 
